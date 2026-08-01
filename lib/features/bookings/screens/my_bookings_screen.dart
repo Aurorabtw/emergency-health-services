@@ -1,0 +1,144 @@
+import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
+import 'package:timeago/timeago.dart' as timeago;
+
+import '../../../providers/auth_provider.dart';
+import '../../../providers/booking_provider.dart';
+import '../../../shared/widgets/booking_status_chip.dart';
+import '../../../shared/widgets/price_widget.dart';
+
+class MyBookingsScreen extends StatefulWidget {
+  const MyBookingsScreen({super.key});
+
+  @override
+  State<MyBookingsScreen> createState() => _MyBookingsScreenState();
+}
+
+class _MyBookingsScreenState extends State<MyBookingsScreen> {
+  @override
+  void initState() {
+    super.initState();
+    _loadBookings();
+  }
+
+  void _loadBookings() {
+    final userId = context.read<AuthProvider>().user?.uid;
+    if (userId != null) {
+      context.read<BookingProvider>().fetchUserBookings(userId);
+    }
+  }
+
+  IconData _typeIcon(String type) {
+    switch (type) {
+      case 'bed':
+        return Icons.bed;
+      case 'ambulance':
+        return Icons.emergency;
+      case 'blood':
+        return Icons.bloodtype;
+      default:
+        return Icons.info;
+    }
+  }
+
+  String _typeLabel(String type) {
+    switch (type) {
+      case 'bed':
+        return 'Bed Booking';
+      case 'ambulance':
+        return 'Ambulance Booking';
+      case 'blood':
+        return 'Blood Request';
+      default:
+        return 'Booking';
+    }
+  }
+
+  Color _typeColor(String type) {
+    switch (type) {
+      case 'bed':
+        return Colors.blue;
+      case 'ambulance':
+        return Colors.orange;
+      case 'blood':
+        return Colors.red;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bookingProvider = context.watch<BookingProvider>();
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 800),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('My Bookings', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 16),
+              if (bookingProvider.isLoading)
+                const Center(child: CircularProgressIndicator())
+              else if (bookingProvider.bookings.isEmpty)
+                Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(48),
+                    child: Column(
+                      children: [
+                        Icon(Icons.list_alt, size: 64, color: Colors.grey.shade300),
+                        const SizedBox(height: 16),
+                        Text('No bookings yet', style: Theme.of(context).textTheme.titleMedium?.copyWith(color: Colors.grey.shade500)),
+                        const SizedBox(height: 8),
+                        Text('Your booking requests will appear here', style: TextStyle(color: Colors.grey.shade400)),
+                      ],
+                    ),
+                  ),
+                )
+              else
+                ...bookingProvider.bookings.map(
+                  (booking) => Card(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    child: ListTile(
+                      leading: CircleAvatar(
+                        backgroundColor: _typeColor(booking.type).withValues(alpha: 0.15),
+                        child: Icon(_typeIcon(booking.type), color: _typeColor(booking.type)),
+                      ),
+                      title: Text(booking.organizationName ?? '${_typeLabel(booking.type)} Booking'),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(_typeLabel(booking.type), style: TextStyle(color: _typeColor(booking.type), fontWeight: FontWeight.w500, fontSize: 12)),
+                          if (booking.type == 'bed' && booking.bedType != null)
+                            Text('Bed Type: ${booking.bedType}'),
+                          if (booking.type == 'blood' && booking.bloodType != null)
+                            Text('Blood: ${booking.bloodType} - ${booking.unitsNeeded ?? 0} units'),
+                          if (booking.type == 'ambulance' && booking.ambulanceType != null)
+                            Text('Ambulance: ${booking.ambulanceType}'),
+                          Text(timeago.format(booking.createdAt), style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
+                        ],
+                      ),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (booking.estimatedPrice != null) PriceWidget(price: booking.estimatedPrice),
+                          const SizedBox(width: 8),
+                          BookingStatusChip(status: booking.status),
+                        ],
+                      ),
+                      isThreeLine: true,
+                      onTap: () => context.go('/booking/${booking.id}'),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}

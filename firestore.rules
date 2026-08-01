@@ -1,0 +1,96 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isSuperAdmin() {
+      return isAuthenticated() && getUserData().role == 'super_admin';
+    }
+
+    function isOrgAdmin(orgId) {
+      return isAuthenticated()
+        && getUserData().organization_id == orgId
+        && getUserData().role in ['hospital_admin', 'blood_bank_admin', 'ambulance_admin'];
+    }
+
+    function isProfileComplete() {
+      return isAuthenticated() && getUserData().profile_complete == true;
+    }
+
+    // Organizations - public read, super admin write
+    match /organizations/{orgId} {
+      allow read: if true;
+      allow create, update, delete: if isSuperAdmin();
+
+      // Beds subcollection
+      match /beds/{bedId} {
+        allow read: if true;
+        allow create, update, delete: if isOrgAdmin(orgId) || isSuperAdmin();
+      }
+
+      // Ambulances subcollection
+      match /ambulances/{vehicleId} {
+        allow read: if true;
+        allow create, update, delete: if isOrgAdmin(orgId) || isSuperAdmin();
+      }
+
+      // Blood stock subcollection
+      match /blood_stock/{stockId} {
+        allow read: if true;
+        allow create, update, delete: if isOrgAdmin(orgId) || isSuperAdmin();
+      }
+
+      // Tests subcollection
+      match /tests/{testId} {
+        allow read: if true;
+        allow create, update, delete: if isOrgAdmin(orgId) || isSuperAdmin();
+      }
+    }
+
+    // Booking requests
+    match /booking_requests/{requestId} {
+      allow create: if isAuthenticated() && isProfileComplete();
+
+      allow read: if isAuthenticated() && (
+        resource.data.user_id == request.auth.uid
+        || isOrgAdmin(resource.data.organization_id)
+        || isSuperAdmin()
+      );
+
+      allow update: if isAuthenticated() && (
+        isOrgAdmin(resource.data.organization_id)
+        || isSuperAdmin()
+        // Allow lazy expiry updates from any authenticated user reading the doc
+        || (resource.data.user_id == request.auth.uid
+            && request.resource.data.status == 'expired'
+            && resource.data.status == 'confirmed')
+      );
+    }
+
+    // Platform config
+    match /config/{docId} {
+      allow read: if true;
+      allow write: if isAuthenticated();
+    }
+
+    // User profiles
+    match /users/{userId} {
+      allow read: if isAuthenticated() && (
+        request.auth.uid == userId || isSuperAdmin()
+      );
+
+      allow create: if isAuthenticated() && request.auth.uid == userId;
+
+      allow update: if isAuthenticated() && (
+        request.auth.uid == userId || isSuperAdmin()
+      );
+    }
+  }
+}
