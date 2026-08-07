@@ -15,6 +15,7 @@ class AuthProvider extends ChangeNotifier {
   UserModel? _userModel;
   String? _organizationName;
   bool _isLoading = true;
+  String? _error;
   StreamSubscription? _authSub;
 
   UserModel? get user => _userModel;
@@ -28,6 +29,7 @@ class AuthProvider extends ChangeNotifier {
   bool get isAmbulanceAdmin => _userModel?.isAmbulanceAdmin ?? false;
   bool get isSuperAdmin => _userModel?.isSuperAdmin ?? false;
   bool get isProfileComplete => _userModel?.profileComplete ?? false;
+  String? get error => _error;
 
   AuthProvider() {
     _init();
@@ -35,6 +37,11 @@ class AuthProvider extends ChangeNotifier {
 
   void _init() {
     _authSub = _authService.authStateChanges.listen(_onAuthStateChanged);
+  }
+
+  void clearError() {
+    _error = null;
+    notifyListeners();
   }
 
   Future<void> _onAuthStateChanged(User? firebaseUser) async {
@@ -93,24 +100,127 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ── Google Sign-In ──
+
   Future<bool> signInWithGoogle() async {
     try {
       _isLoading = true;
+      _error = null;
       notifyListeners();
       final result = await _authService.signInWithGoogle();
       return result != null;
     } catch (e) {
       _isLoading = false;
+      _error = 'Google sign-in failed. Please try again.';
       notifyListeners();
       return false;
     }
   }
+
+  // ── Email + Password ──
+
+  Future<bool> registerWithEmail(String email, String password, String name) async {
+    try {
+      _isLoading = true;
+      _error = null;
+      notifyListeners();
+
+      final credential = await _authService.registerWithEmail(email, password);
+
+      // Update Firebase Auth display name
+      await credential.user?.updateDisplayName(name);
+
+      // Create Firestore user doc (will be picked up by _onAuthStateChanged,
+      // but we set name + profileComplete here since we have the name)
+      if (credential.user != null) {
+        final configDoc = await _firestoreService.getDocument('config/platform');
+        final isFirstUser = !configDoc.exists;
+        final role = isFirstUser ? 'super_admin' : 'patient';
+
+        final newUser = UserModel(
+          uid: credential.user!.uid,
+          email: email.trim(),
+          name: name.trim(),
+          role: role,
+          profileComplete: name.trim().isNotEmpty,
+        );
+        await _firestoreService.setDocument('users/${credential.user!.uid}', newUser.toFirestore());
+
+        if (isFirstUser) {
+          await _firestoreService.setDocument('config/platform', {
+            'initialized': true,
+            'initialized_by': credential.user!.uid,
+            'initialized_at': DateTime.now().toIso8601String(),
+          });
+        }
+
+        _userModel = newUser;
+        _isLoading = false;
+        notifyListeners();
+      }
+
+      return true;
+    } on FirebaseAuthException catch (e) {
+      _isLoading = false;
+      _error = _mapAuthError(e.code);
+      notifyListeners();
+      return false;
+    } catch (e) {
+      _isLoading = false;
+      _error = 'Registration failed. Please try again.';
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<bool> signInWithEmail(String email, String password) async {
+    try {
+      _isLoading = true;
+      _error = null;
+      notifyListeners();
+
+      await _authService.signInWithEmail(email, password);
+      // _onAuthStateChanged will handle loading the user
+      return true;
+    } on FirebaseAuthException catch (e) {
+      _isLoading = false;
+      _error = _mapAuthError(e.code);
+      notifyListeners();
+      return false;
+    } catch (e) {
+      _isLoading = false;
+      _error = 'Sign-in failed. Please try again.';
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<bool> sendPasswordResetEmail(String email) async {
+    try {
+      _error = null;
+      notifyListeners();
+      await _authService.sendPasswordResetEmail(email);
+      return true;
+    } on FirebaseAuthException catch (e) {
+      _error = _mapAuthError(e.code);
+      notifyListeners();
+      return false;
+    } catch (e) {
+      _error = 'Failed to send reset email. Please try again.';
+      notifyListeners();
+      return false;
+    }
+  }
+
+  // ── Sign Out ──
 
   Future<void> signOut() async {
     await _authService.signOut();
     _userModel = null;
     notifyListeners();
   }
+
+  // ── Profile ──
 
   Future<void> updateProfile({required String name, required String phone}) async {
     if (_userModel == null) return;
@@ -135,6 +245,33 @@ class AuthProvider extends ChangeNotifier {
     if (doc.exists) {
       _userModel = UserModel.fromFirestore(doc);
       notifyListeners();
+    }
+  }
+
+  // ── Helpers ──
+
+  String _mapAuthError(String code) {
+    switch (code) {
+      case 'email-already-in-use':
+        return 'An account with this email already exists. Try signing in instead.';
+      case 'invalid-email':
+        return 'Please enter a valid email address.';
+      case 'weak-password':
+        return 'Password is too weak. Use at least 6 characters.';
+      case 'user-not-found':
+        return 'No account found with this email. Try registering instead.';
+      case 'wrong-password':
+        return 'Incorrect password. Try again or reset your password.';
+      case 'invalid-credential':
+        return 'Invalid email or password. Please check and try again.';
+      case 'user-disabled':
+        return 'This account has been disabled. Contact support.';
+      case 'too-many-requests':
+        return 'Too many attempts. Please wait a moment and try again.';
+      case 'network-request-failed':
+        return 'Network error. Check your internet connection.';
+      default:
+        return 'Authentication error: $code';
     }
   }
 
