@@ -108,11 +108,11 @@ class _ManageFleetScreenState extends State<ManageFleetScreen> {
                             onPressed: () async {
                               final confirm = await showDialog<bool>(
                                 context: context,
-                                builder: (_) => AlertDialog(
+                                builder: (dlgCtx) => AlertDialog(
                                   title: const Text('Delete Vehicle?'),
                                   actions: [
-                                    TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-                                    FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete')),
+                                    TextButton(onPressed: () => Navigator.pop(dlgCtx, false), child: const Text('Cancel')),
+                                    FilledButton(onPressed: () => Navigator.pop(dlgCtx, true), child: const Text('Delete')),
                                   ],
                                 ),
                               );

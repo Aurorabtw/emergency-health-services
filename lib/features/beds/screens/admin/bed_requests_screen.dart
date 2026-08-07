@@ -136,14 +136,14 @@ class _BedRequestsScreenState extends State<BedRequestsScreen> {
                                 onPressed: () {
                                   showDialog(
                                     context: context,
-                                    builder: (_) => Dialog(
+                                    builder: (dialogContext) => Dialog(
                                       child: Column(
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
                                           AppBar(
                                             title: const Text('Prescription'),
                                             automaticallyImplyLeading: false,
-                                            actions: [IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context))],
+                                            actions: [IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(dialogContext))],
                                           ),
                                           ConstrainedBox(
                                             constraints: const BoxConstraints(maxHeight: 500, maxWidth: 600),
