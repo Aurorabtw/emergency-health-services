@@ -40,13 +40,29 @@ A step-by-step guide for teammates to add and manage all types of data in the Em
 
 ### First Login — Who Gets Super Admin?
 
-The **first person** to sign in with Google becomes the **Super Admin** automatically. All subsequent users start as **patients**.
+The **first person** to sign in (via email registration or Google) becomes the **Super Admin** automatically. All subsequent users start as **patients**.
 
+**Option A — Register with Email:**
 1. Open the app in Chrome
-2. Click **Sign In with Google**
-3. The first user is redirected to the **Platform Admin Dashboard**
+2. Click **Register** on the login page
+3. Enter your **full name**, **email**, and a **password** (at least 6 characters)
+4. Click **Create Account**
+
+**Option B — Sign In with Google:**
+1. Open the app in Chrome
+2. Click **Sign in with Google** on the login page
+3. Choose your Google account in the popup
+
+Either way, the first user is redirected to the **Platform Admin Dashboard**.
 
 > ⚠️ If someone else needs to be Super Admin, the current Super Admin can reassign roles from **Manage Users**.
+
+### Forgot Your Password?
+
+1. On the login page, click **Forgot password?**
+2. Enter the email you registered with
+3. Click **Send Reset Link** — check your inbox for the reset email
+4. Follow the link to set a new password, then sign in again
 
 ---
 
@@ -333,13 +349,21 @@ All three request screens have a **Clean** button (broom icon, top right):
 
 ## 8. Patient — Profile & Bookings
 
+### Sign In or Register
+
+1. Open the app in Chrome
+2. Either:
+   - **Email:** Click **Register** → fill in name, email, and password → **Create Account**
+   - **Google:** Click **Sign in with Google** → pick your Google account
+3. If you already have an account, use **Sign In** with your email + password, or Google
+
 ### Complete Your Profile
 
 Before booking, patients must complete their profile:
 
 1. Click **Profile** (user icon in nav bar)
 2. Fill in:
-   - **Name** — your full name
+   - **Name** — your full name (pre-filled if you registered with email or Google)
    - **Phone** — your contact number (e.g., `01712345678`)
 3. Click **Save**
 
@@ -486,11 +510,11 @@ If you're adding data manually (instead of using demo data), here are realistic 
 
 ## Quick Checklist for Full Platform Setup
 
-- [ ] First user signs in → becomes Super Admin
+- [ ] First user signs in (email or Google) → becomes Super Admin
 - [ ] Super Admin loads demo data OR adds organizations manually
 - [ ] For each organization:
   - [ ] Add the organization (name, address, coordinates, phone)
-  - [ ] Have a teammate sign in with Google
+  - [ ] Have a teammate register (email) or sign in (Google)
   - [ ] Assign them the correct admin role + organization
 - [ ] Each admin logs in and adds their data:
   - [ ] **Hospital Admin:** Add bed types + diagnostic tests

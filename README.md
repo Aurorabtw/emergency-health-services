@@ -17,7 +17,7 @@ A unified emergency healthcare coordination platform built with **Flutter Web** 
 - **Backend:** Firebase (Auth, Cloud Firestore, Storage)
 - **State Management:** Provider (ChangeNotifier)
 - **Routing:** GoRouter with role-based route guards
-- **Auth:** Firebase Google Sign-In (`signInWithPopup`)
+- **Auth:** Firebase Email/Password + Google Sign-In (`signInWithPopup`)
 - **Image Storage:** Cloudinary (free tier, unsigned uploads)
 - **Maps:** flutter_map + OpenStreetMap (free, no API key, real street maps)
 - **Distances:** OSRM road distances (actual driving distance, free API)
@@ -57,8 +57,8 @@ flutter pub get
 
 **Authentication:**
 - Go to **Authentication** → **Sign-in method**
-- Enable **Google** provider
-- Set a support email and save
+- Enable **Email/Password** provider
+- Enable **Google** provider → set a support email and save
 
 **Cloud Firestore:**
 - Go to **Firestore Database** → **Create database**
@@ -125,9 +125,9 @@ firebase deploy --only hosting
 
 ### Step 1: First User Becomes Super Admin
 
-The **first user** to sign in with Google is automatically promoted to **Super Admin**. This is tracked via a `config/platform` document in Firestore. All subsequent users are created as **patients**.
+The **first user** to sign in (via email registration or Google) is automatically promoted to **Super Admin**. This is tracked via a `config/platform` document in Firestore. All subsequent users are created as **patients**.
 
-1. Click **Sign In with Google** on the login page
+1. On the login page, either **register with email** or click **Sign in with Google**
 2. You'll be redirected to the **Platform Admin Dashboard**
 
 ### Step 2: Load Demo Data
@@ -212,7 +212,7 @@ Patient submits request
 ```
 lib/
 ├── main.dart                          # Entry point — Firebase init
-├── app.dart                           # MaterialApp + Providers + GoRouter
+├── app.dart                           # MaterialApp + Providers + cached GoRouter
 ├── config/
 │   ├── routes.dart                    # All routes + guards + admin request views
 │   └── theme.dart                     # Material 3 theme
@@ -225,19 +225,19 @@ lib/
 │   ├── ambulance_model.dart
 │   └── test_model.dart
 ├── providers/                         # ChangeNotifier state management
-│   ├── auth_provider.dart             # Auth state, role checks, org name
+│   ├── auth_provider.dart             # Auth state, role checks, org name, error mapping
 │   ├── booking_provider.dart          # Booking CRUD, confirm/reject/clean
 │   ├── organization_provider.dart     # Org listing and lookup
 │   └── location_provider.dart         # Browser geolocation
 ├── services/                          # Firebase service layer
-│   ├── auth_service.dart              # Google Sign-In via signInWithPopup
+│   ├── auth_service.dart              # Email/Password + Google Sign-In
 │   ├── firestore_service.dart         # Generic Firestore CRUD + transactions
 │   ├── cloudinary_service.dart         # Cloudinary image upload API
 │   ├── storage_service.dart           # Image upload wrapper (uses Cloudinary)
 │   ├── location_service.dart          # Geolocation API wrapper
 │   └── seed_data_service.dart         # Demo data seeder
 ├── features/
-│   ├── auth/screens/                  # Login screen
+│   ├── auth/screens/                  # Login / Register / Forgot Password
 │   ├── home/screens/                  # Service selection cards
 │   ├── profile/screens/               # User profile editing
 │   ├── bookings/screens/              # My Bookings + Booking Detail
@@ -298,6 +298,8 @@ config/platform
 | Issue | Cause | Fix |
 |-------|-------|-----|
 | Google Sign-In opens blank popup | OAuth not configured | Add your domain to Firebase Auth → Authorized domains |
+| Email sign-in fails silently | Email/Password provider not enabled | Firebase Console → Authentication → Sign-in method → enable Email/Password |
+| "Weak password" error on register | Password too short | Firebase requires at least 6 characters |
 | Firestore permission denied | Security rules not deployed | Run `firebase deploy --only firestore:rules` |
 | Bookings disappear after refresh | Composite index required | Check browser console for Firestore index creation links, or the app handles this by client-side sorting |
 | First user isn't super admin | `config/platform` doc already exists | Delete `config/platform` from Firestore console, then sign in again |
