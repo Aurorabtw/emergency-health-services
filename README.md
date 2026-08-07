@@ -19,7 +19,7 @@ A unified emergency healthcare coordination platform built with **Flutter Web** 
 - **Routing:** GoRouter with role-based route guards
 - **Auth:** Firebase Google Sign-In (`signInWithPopup`)
 - **Image Storage:** Cloudinary (free tier, unsigned uploads)
-- **Maps:** Google Maps for Web (markers with availability color-coding)
+- **Maps:** Custom interactive map view (no API key needed, color-coded availability markers)
 - **Currency:** Bangladeshi Taka (৳) formatting
 
 ## Prerequisites
@@ -310,7 +310,7 @@ config/platform
 - **Client-side search** — test search and hospital autocomplete filter locally after fetching all records
 - **Currency** — all prices are in Bangladeshi Taka (৳), formatted via `intl` package
 - **Image storage** — uses Cloudinary (free tier) instead of Firebase Storage to avoid billing requirements
-- **Maps** — Google Maps with a demo API key; color-coded markers (green >5, yellow 1-4, red 0) on all listing screens
+- **Maps** — custom-built interactive map widget (no API key needed); color-coded markers (green >5, yellow 1-4, red 0) on all listing screens
 
 ## Team Workflow
 

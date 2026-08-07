@@ -23,9 +23,7 @@ dependencies:
   # Routing
   go_router: ^17.3.0
 
-  # Maps & Location
-  google_maps_flutter: ^2.14.2
-  google_maps_flutter_web: ^0.5.12
+  # Location
   geolocator: ^14.0.3
   geolocator_web: ^4.1.1
 
