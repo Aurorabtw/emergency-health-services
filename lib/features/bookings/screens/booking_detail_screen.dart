@@ -90,6 +90,24 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
                     ),
                   if (booking.type == 'bed') ...[
                     _DetailRow(label: 'Bed Type', value: booking.bedType ?? '-'),
+                    if (booking.prescriptionImageUrl != null) ...[
+                      const SizedBox(height: 12),
+                      const Text('Prescription', style: TextStyle(fontWeight: FontWeight.w500)),
+                      const SizedBox(height: 8),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.network(
+                          booking.prescriptionImageUrl!,
+                          height: 200,
+                          fit: BoxFit.contain,
+                          errorBuilder: (_, __, ___) => Container(
+                            height: 100,
+                            decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(8)),
+                            child: const Center(child: Text('Image unavailable')),
+                          ),
+                        ),
+                      ),
+                    ],
                   ],
                   if (booking.type == 'ambulance') ...[
                     _DetailRow(label: 'Ambulance Type', value: booking.ambulanceType ?? '-'),

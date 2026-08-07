@@ -6,6 +6,7 @@ import '../../../models/organization_model.dart';
 import '../../../providers/location_provider.dart';
 import '../../../providers/organization_provider.dart';
 import '../../../shared/widgets/availability_badge.dart';
+import '../../../shared/widgets/map_view.dart';
 import '../../../shared/widgets/price_widget.dart';
 import '../../../shared/widgets/sort_filter_bar.dart';
 import '../providers/bed_provider.dart';
@@ -112,6 +113,21 @@ class _BedListingsScreenState extends State<BedListingsScreen> {
                 onFilterChanged: (v) => setState(() => _bedTypeFilter = v),
                 filterLabel: 'Bed Type',
               ),
+              const SizedBox(height: 16),
+              if (!isLoading && orgProvider.organizations.isNotEmpty)
+                SharedMapView(
+                  markers: _sortedHospitals().map((h) => MapMarker(
+                    id: h.id,
+                    latitude: h.latitude,
+                    longitude: h.longitude,
+                    title: h.name,
+                    snippet: h.address,
+                    available: bedProvider.getTotalAvailable(h.id, bedType: _bedTypeFilter),
+                    onTap: () => context.go('/beds/book/${h.id}'),
+                  )).toList(),
+                  centerLat: locationProvider.latitude,
+                  centerLng: locationProvider.longitude,
+                ),
               const SizedBox(height: 16),
               if (isLoading)
                 const Center(child: Padding(padding: EdgeInsets.all(48), child: CircularProgressIndicator()))

@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../../providers/location_provider.dart';
 import '../../../providers/organization_provider.dart';
 import '../../../shared/widgets/availability_badge.dart';
+import '../../../shared/widgets/map_view.dart';
 import '../../../shared/widgets/price_widget.dart';
 import '../../../shared/widgets/sort_filter_bar.dart';
 import '../providers/ambulance_provider.dart';
@@ -85,6 +86,26 @@ class _AmbulanceListingsScreenState extends State<AmbulanceListingsScreen> {
                 onFilterChanged: (v) => setState(() => _typeFilter = v),
                 filterLabel: 'Vehicle Type',
               ),
+              const SizedBox(height: 16),
+              if (!isLoading && operators.isNotEmpty)
+                SharedMapView(
+                  markers: operators.map((op) {
+                    final ambulances = ambProvider.getAmbulancesForOrg(op.id);
+                    final filtered = _typeFilter != null ? ambulances.where((a) => a.type == _typeFilter).toList() : ambulances;
+                    final availableCount = filtered.where((a) => a.isAvailable).length;
+                    return MapMarker(
+                      id: op.id,
+                      latitude: op.latitude,
+                      longitude: op.longitude,
+                      title: op.name,
+                      snippet: op.address,
+                      available: availableCount,
+                      onTap: () => context.go('/ambulance/book/${op.id}'),
+                    );
+                  }).toList(),
+                  centerLat: locationProvider.latitude,
+                  centerLng: locationProvider.longitude,
+                ),
               const SizedBox(height: 16),
               if (isLoading)
                 const Center(child: Padding(padding: EdgeInsets.all(48), child: CircularProgressIndicator()))

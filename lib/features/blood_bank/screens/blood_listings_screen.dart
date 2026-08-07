@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../../providers/location_provider.dart';
 import '../../../providers/organization_provider.dart';
 import '../../../shared/widgets/availability_badge.dart';
+import '../../../shared/widgets/map_view.dart';
 import '../../../shared/widgets/price_widget.dart';
 import '../../../shared/widgets/sort_filter_bar.dart';
 import '../providers/blood_provider.dart';
@@ -74,6 +75,28 @@ class _BloodListingsScreenState extends State<BloodListingsScreen> {
                 onFilterChanged: (v) => setState(() => _selectedBloodType = v),
                 filterLabel: 'Blood Type',
               ),
+              const SizedBox(height: 16),
+              if (!isLoading && orgs.isNotEmpty)
+                SharedMapView(
+                  markers: orgs.map((o) {
+                    final stock = bloodProvider.getStockForOrg(o.id);
+                    final filtered = _selectedBloodType != null
+                        ? stock.where((s) => s.bloodType == _selectedBloodType).toList()
+                        : stock;
+                    final totalAvailable = filtered.fold(0, (sum, s) => sum + s.availableUnits);
+                    return MapMarker(
+                      id: o.id,
+                      latitude: o.latitude,
+                      longitude: o.longitude,
+                      title: o.name,
+                      snippet: o.address,
+                      available: totalAvailable,
+                      onTap: () => context.go('/blood/request/${o.id}'),
+                    );
+                  }).toList(),
+                  centerLat: locationProvider.latitude,
+                  centerLng: locationProvider.longitude,
+                ),
               const SizedBox(height: 16),
               if (isLoading)
                 const Center(child: Padding(padding: EdgeInsets.all(48), child: CircularProgressIndicator()))

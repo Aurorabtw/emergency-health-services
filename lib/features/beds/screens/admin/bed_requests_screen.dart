@@ -133,7 +133,34 @@ class _BedRequestsScreenState extends State<BedRequestsScreen> {
                             Padding(
                               padding: const EdgeInsets.only(top: 8),
                               child: TextButton.icon(
-                                onPressed: () {},
+                                onPressed: () {
+                                  showDialog(
+                                    context: context,
+                                    builder: (_) => Dialog(
+                                      child: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          AppBar(
+                                            title: const Text('Prescription'),
+                                            automaticallyImplyLeading: false,
+                                            actions: [IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context))],
+                                          ),
+                                          ConstrainedBox(
+                                            constraints: const BoxConstraints(maxHeight: 500, maxWidth: 600),
+                                            child: Image.network(
+                                              booking.prescriptionImageUrl!,
+                                              fit: BoxFit.contain,
+                                              errorBuilder: (_, __, ___) => const Padding(
+                                                padding: EdgeInsets.all(48),
+                                                child: Text('Image unavailable'),
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  );
+                                },
                                 icon: const Icon(Icons.image),
                                 label: const Text('View Prescription'),
                               ),

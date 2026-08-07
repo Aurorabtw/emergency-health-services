@@ -18,6 +18,8 @@ A unified emergency healthcare coordination platform built with **Flutter Web** 
 - **State Management:** Provider (ChangeNotifier)
 - **Routing:** GoRouter with role-based route guards
 - **Auth:** Firebase Google Sign-In (`signInWithPopup`)
+- **Image Storage:** Cloudinary (free tier, unsigned uploads)
+- **Maps:** Google Maps for Web (markers with availability color-coding)
 - **Currency:** Bangladeshi Taka (৳) formatting
 
 ## Prerequisites
@@ -62,11 +64,26 @@ flutter pub get
 - Select **Start in test mode** (we'll deploy proper rules later)
 - Choose a region close to your users (e.g., `asia-southeast1`)
 
-**Storage (optional — for prescription uploads):**
-- Go to **Storage** → **Get started**
-- Start in test mode
+### 3. Set Up Cloudinary (Prescription Image Uploads)
 
-### 3. Connect Firebase to the Project
+Prescription images are stored on [Cloudinary](https://cloudinary.com) (free tier — 25GB storage, 25GB bandwidth/month).
+
+1. Sign up at [cloudinary.com](https://cloudinary.com) (free)
+2. From the **Dashboard**, copy your **Cloud Name**
+3. Go to **Settings** → **Upload** → scroll to **Upload presets**
+4. Click **Add upload preset**:
+   - **Preset name:** `hospital_services`
+   - **Signing Mode:** `Unsigned`
+   - **Folder:** `prescriptions` (optional)
+   - Save
+5. Open `lib/services/cloudinary_service.dart` and update:
+
+```dart
+static const String cloudName = 'YOUR_CLOUD_NAME';
+static const String uploadPreset = 'hospital_services';
+```
+
+### 4. Connect Firebase to the Project
 
 ```bash
 firebase login
@@ -75,7 +92,7 @@ flutterfire configure --project=YOUR_PROJECT_ID
 
 This generates/overwrites `lib/firebase_options.dart` with your project's config. Select **Web** when prompted for platforms.
 
-### 4. Deploy Firestore Security Rules
+### 5. Deploy Firestore Security Rules
 
 ```bash
 firebase deploy --only firestore:rules
@@ -88,7 +105,7 @@ This deploys the rules from `firestore.rules` which enforce:
 - Super admin has platform-wide access
 - Users can only read their own profile and bookings
 
-### 5. Run the App
+### 6. Run the App
 
 ```bash
 flutter run -d chrome
@@ -214,7 +231,8 @@ lib/
 ├── services/                          # Firebase service layer
 │   ├── auth_service.dart              # Google Sign-In via signInWithPopup
 │   ├── firestore_service.dart         # Generic Firestore CRUD + transactions
-│   ├── storage_service.dart           # Firebase Storage uploads
+│   ├── cloudinary_service.dart         # Cloudinary image upload API
+│   ├── storage_service.dart           # Image upload wrapper (uses Cloudinary)
 │   ├── location_service.dart          # Geolocation API wrapper
 │   └── seed_data_service.dart         # Demo data seeder
 ├── features/
@@ -291,6 +309,8 @@ config/platform
 - **Denormalized org names** — `organization_name` is stored directly in booking documents to avoid extra reads
 - **Client-side search** — test search and hospital autocomplete filter locally after fetching all records
 - **Currency** — all prices are in Bangladeshi Taka (৳), formatted via `intl` package
+- **Image storage** — uses Cloudinary (free tier) instead of Firebase Storage to avoid billing requirements
+- **Maps** — Google Maps with a demo API key; color-coded markers (green >5, yellow 1-4, red 0) on all listing screens
 
 ## Team Workflow
 

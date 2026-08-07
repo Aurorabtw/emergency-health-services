@@ -1,22 +1,22 @@
 import 'dart:typed_data';
 
-import 'package:firebase_storage/firebase_storage.dart';
+import 'cloudinary_service.dart';
 
+/// Storage service that delegates to Cloudinary.
+/// Drop-in replacement for the old Firebase Storage-based service.
 class StorageService {
-  final FirebaseStorage _storage = FirebaseStorage.instance;
+  final CloudinaryService _cloudinary = CloudinaryService();
 
   Future<String> uploadFile({
     required String path,
     required Uint8List data,
     String? contentType,
-  }) async {
-    final ref = _storage.ref().child(path);
-    final metadata = contentType != null ? SettableMetadata(contentType: contentType) : null;
-    await ref.putData(data, metadata);
-    return ref.getDownloadURL();
+  }) {
+    final folder = path.contains('/') ? path.substring(0, path.lastIndexOf('/')) : 'uploads';
+    return _cloudinary.uploadImage(data, folder: folder);
   }
 
   Future<void> deleteFile(String path) {
-    return _storage.ref().child(path).delete();
+    return _cloudinary.deleteImage(path);
   }
 }
