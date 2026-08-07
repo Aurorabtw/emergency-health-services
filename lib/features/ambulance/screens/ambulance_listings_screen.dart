@@ -35,6 +35,14 @@ class _AmbulanceListingsScreenState extends State<AmbulanceListingsScreen> {
     await locationProvider.getCurrentLocation();
     await orgProvider.fetchVerifiedOrganizations(type: 'ambulance_operator');
     await ambProvider.fetchAmbulancesForOperators(orgProvider.organizations);
+
+    // Fetch road distances for all ambulance operators
+    if (locationProvider.hasLocation) {
+      final destinations = orgProvider.organizations
+          .map((o) => (lat: o.latitude, lng: o.longitude, id: o.id))
+          .toList();
+      await locationProvider.fetchRoadDistances(destinations);
+    }
   }
 
   @override
@@ -48,8 +56,8 @@ class _AmbulanceListingsScreenState extends State<AmbulanceListingsScreen> {
 
     if (_sortOption == SortOption.distance && locationProvider.hasLocation) {
       operators.sort((a, b) {
-        final dA = locationProvider.distanceTo(a.latitude, a.longitude) ?? double.infinity;
-        final dB = locationProvider.distanceTo(b.latitude, b.longitude) ?? double.infinity;
+        final dA = locationProvider.distanceTo(a.latitude, a.longitude, orgId: a.id) ?? double.infinity;
+        final dB = locationProvider.distanceTo(b.latitude, b.longitude, orgId: b.id) ?? double.infinity;
         return dA.compareTo(dB);
       });
     } else if (_sortOption == SortOption.priceLowHigh) {
@@ -127,7 +135,7 @@ class _AmbulanceListingsScreenState extends State<AmbulanceListingsScreen> {
                   final ambulances = ambProvider.getAmbulancesForOrg(op.id);
                   final filtered = _typeFilter != null ? ambulances.where((a) => a.type == _typeFilter).toList() : ambulances;
                   final availableCount = filtered.where((a) => a.isAvailable).length;
-                  final distance = locationProvider.distanceTo(op.latitude, op.longitude);
+                  final distance = locationProvider.distanceTo(op.latitude, op.longitude, orgId: op.id);
 
                   return Card(
                     margin: const EdgeInsets.only(bottom: 12),
@@ -151,8 +159,12 @@ class _AmbulanceListingsScreenState extends State<AmbulanceListingsScreen> {
                                           Icon(Icons.location_on, size: 14, color: Colors.grey.shade500),
                                           const SizedBox(width: 4),
                                           Expanded(child: Text(op.address, style: TextStyle(color: Colors.grey.shade600, fontSize: 13))),
-                                          if (distance != null)
+                                          if (distance != null) ...[
+                                            const SizedBox(width: 8),
+                                            Icon(Icons.directions_car, size: 13, color: Colors.grey.shade500),
+                                            const SizedBox(width: 2),
                                             Text(locationProvider.formatDistance(distance), style: TextStyle(color: Colors.grey.shade500, fontSize: 13, fontWeight: FontWeight.w500)),
+                                          ],
                                         ],
                                       ),
                                     ],

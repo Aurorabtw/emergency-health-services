@@ -23,7 +23,9 @@ dependencies:
   # Routing
   go_router: ^17.3.0
 
-  # Location
+  # Maps & Location
+  flutter_map: ^7.0.2
+  latlong2: ^0.9.1
   geolocator: ^14.0.3
   geolocator_web: ^4.1.1
 

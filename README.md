@@ -19,7 +19,8 @@ A unified emergency healthcare coordination platform built with **Flutter Web** 
 - **Routing:** GoRouter with role-based route guards
 - **Auth:** Firebase Google Sign-In (`signInWithPopup`)
 - **Image Storage:** Cloudinary (free tier, unsigned uploads)
-- **Maps:** Custom interactive map view (no API key needed, color-coded availability markers)
+- **Maps:** flutter_map + OpenStreetMap (free, no API key, real street maps)
+- **Distances:** OSRM road distances (actual driving distance, free API)
 - **Currency:** Bangladeshi Taka (৳) formatting
 
 ## Prerequisites
@@ -310,7 +311,8 @@ config/platform
 - **Client-side search** — test search and hospital autocomplete filter locally after fetching all records
 - **Currency** — all prices are in Bangladeshi Taka (৳), formatted via `intl` package
 - **Image storage** — uses Cloudinary (free tier) instead of Firebase Storage to avoid billing requirements
-- **Maps** — custom-built interactive map widget (no API key needed); color-coded markers (green >5, yellow 1-4, red 0) on all listing screens
+- **Maps** — flutter_map with OpenStreetMap tiles (free, no API key); color-coded markers (green >5, yellow 1-4, red 0) on all listing screens
+- **Road distances** — uses OSRM Table API to batch-fetch real driving distances (not straight-line); falls back to Haversine if OSRM is unavailable
 
 ## Team Workflow
 

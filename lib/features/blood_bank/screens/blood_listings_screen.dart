@@ -36,6 +36,14 @@ class _BloodListingsScreenState extends State<BloodListingsScreen> {
     await locationProvider.getCurrentLocation();
     await orgProvider.fetchVerifiedOrganizations(type: 'blood_bank');
     await bloodProvider.fetchStockForOrganizations(orgProvider.organizations);
+
+    // Fetch road distances for all blood banks
+    if (locationProvider.hasLocation) {
+      final destinations = orgProvider.organizations
+          .map((o) => (lat: o.latitude, lng: o.longitude, id: o.id))
+          .toList();
+      await locationProvider.fetchRoadDistances(destinations);
+    }
   }
 
   @override
@@ -49,8 +57,8 @@ class _BloodListingsScreenState extends State<BloodListingsScreen> {
 
     if (_sortOption == SortOption.distance && locationProvider.hasLocation) {
       orgs.sort((a, b) {
-        final dA = locationProvider.distanceTo(a.latitude, a.longitude) ?? double.infinity;
-        final dB = locationProvider.distanceTo(b.latitude, b.longitude) ?? double.infinity;
+        final dA = locationProvider.distanceTo(a.latitude, a.longitude, orgId: a.id) ?? double.infinity;
+        final dB = locationProvider.distanceTo(b.latitude, b.longitude, orgId: b.id) ?? double.infinity;
         return dA.compareTo(dB);
       });
     }
@@ -120,7 +128,7 @@ class _BloodListingsScreenState extends State<BloodListingsScreen> {
                       ? stock.where((s) => s.bloodType == _selectedBloodType).toList()
                       : stock;
                   final totalAvailable = filtered.fold(0, (sum, s) => sum + s.availableUnits);
-                  final distance = locationProvider.distanceTo(org.latitude, org.longitude);
+                  final distance = locationProvider.distanceTo(org.latitude, org.longitude, orgId: org.id);
 
                   return Card(
                     margin: const EdgeInsets.only(bottom: 12),
@@ -143,9 +151,11 @@ class _BloodListingsScreenState extends State<BloodListingsScreen> {
                                         children: [
                                           Icon(Icons.location_on, size: 14, color: Colors.grey.shade500),
                                           const SizedBox(width: 4),
-                                          Text(org.address, style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+                                          Expanded(child: Text(org.address, style: TextStyle(color: Colors.grey.shade600, fontSize: 13))),
                                           if (distance != null) ...[
                                             const SizedBox(width: 8),
+                                            Icon(Icons.directions_car, size: 13, color: Colors.grey.shade500),
+                                            const SizedBox(width: 2),
                                             Text(locationProvider.formatDistance(distance), style: TextStyle(color: Colors.grey.shade500, fontSize: 13, fontWeight: FontWeight.w500)),
                                           ],
                                         ],

@@ -36,6 +36,14 @@ class _BedListingsScreenState extends State<BedListingsScreen> {
     await locationProvider.getCurrentLocation();
     await orgProvider.fetchVerifiedOrganizations(type: 'hospital');
     await bedProvider.fetchBedsForHospitals(orgProvider.organizations);
+
+    // Fetch road distances for all hospitals
+    if (locationProvider.hasLocation) {
+      final destinations = orgProvider.organizations
+          .map((o) => (lat: o.latitude, lng: o.longitude, id: o.id))
+          .toList();
+      await locationProvider.fetchRoadDistances(destinations);
+    }
   }
 
   List<OrganizationModel> _sortedHospitals() {
@@ -49,8 +57,8 @@ class _BedListingsScreenState extends State<BedListingsScreen> {
       case SortOption.distance:
         if (locationProvider.hasLocation) {
           hospitals.sort((a, b) {
-            final distA = locationProvider.distanceTo(a.latitude, a.longitude) ?? double.infinity;
-            final distB = locationProvider.distanceTo(b.latitude, b.longitude) ?? double.infinity;
+            final distA = locationProvider.distanceTo(a.latitude, a.longitude, orgId: a.id) ?? double.infinity;
+            final distB = locationProvider.distanceTo(b.latitude, b.longitude, orgId: b.id) ?? double.infinity;
             return distA.compareTo(distB);
           });
         }
@@ -140,7 +148,7 @@ class _BedListingsScreenState extends State<BedListingsScreen> {
                       ? beds.where((b) => b.type == _bedTypeFilter).toList()
                       : beds;
                   final totalAvailable = filteredBeds.fold(0, (sum, b) => sum + b.availableBeds);
-                  final distance = locationProvider.distanceTo(hospital.latitude, hospital.longitude);
+                  final distance = locationProvider.distanceTo(hospital.latitude, hospital.longitude, orgId: hospital.id);
 
                   return Card(
                     margin: const EdgeInsets.only(bottom: 12),
@@ -164,9 +172,11 @@ class _BedListingsScreenState extends State<BedListingsScreen> {
                                         children: [
                                           Icon(Icons.location_on, size: 14, color: Colors.grey.shade500),
                                           const SizedBox(width: 4),
-                                          Text(hospital.address, style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+                                          Expanded(child: Text(hospital.address, style: TextStyle(color: Colors.grey.shade600, fontSize: 13))),
                                           if (distance != null) ...[
                                             const SizedBox(width: 8),
+                                            Icon(Icons.directions_car, size: 13, color: Colors.grey.shade500),
+                                            const SizedBox(width: 2),
                                             Text(locationProvider.formatDistance(distance),
                                                 style: TextStyle(color: Colors.grey.shade500, fontSize: 13, fontWeight: FontWeight.w500)),
                                           ],
