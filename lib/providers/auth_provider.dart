@@ -108,6 +108,12 @@ class AuthProvider extends ChangeNotifier {
       _error = null;
       notifyListeners();
       final result = await _authService.signInWithGoogle();
+      if (result == null) {
+        // User cancelled the popup — reset loading state
+        _isLoading = false;
+        notifyListeners();
+      }
+      // On success, _onAuthStateChanged handles loading state
       return result != null;
     } catch (e) {
       _isLoading = false;
@@ -197,15 +203,20 @@ class AuthProvider extends ChangeNotifier {
 
   Future<bool> sendPasswordResetEmail(String email) async {
     try {
+      _isLoading = true;
       _error = null;
       notifyListeners();
       await _authService.sendPasswordResetEmail(email);
+      _isLoading = false;
+      notifyListeners();
       return true;
     } on FirebaseAuthException catch (e) {
+      _isLoading = false;
       _error = _mapAuthError(e.code);
       notifyListeners();
       return false;
     } catch (e) {
+      _isLoading = false;
       _error = 'Failed to send reset email. Please try again.';
       notifyListeners();
       return false;

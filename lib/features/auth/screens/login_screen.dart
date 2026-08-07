@@ -125,21 +125,17 @@ class _LoginFormState extends State<_LoginForm> {
     if (!_formKey.currentState!.validate()) return;
 
     final auth = context.read<AuthProvider>();
-    final success = await auth.signInWithEmail(
+    await auth.signInWithEmail(
       _emailController.text,
       _passwordController.text,
     );
-    if (success && mounted) {
-      context.go('/');
-    }
+    // GoRouter's redirect handles navigation after _onAuthStateChanged fires
   }
 
   Future<void> _signInWithGoogle() async {
     final auth = context.read<AuthProvider>();
-    final success = await auth.signInWithGoogle();
-    if (success && mounted) {
-      context.go('/');
-    }
+    await auth.signInWithGoogle();
+    // GoRouter's redirect handles navigation after _onAuthStateChanged fires
   }
 
   @override
@@ -303,14 +299,12 @@ class _RegisterFormState extends State<_RegisterForm> {
     if (!_formKey.currentState!.validate()) return;
 
     final auth = context.read<AuthProvider>();
-    final success = await auth.registerWithEmail(
+    await auth.registerWithEmail(
       _emailController.text,
       _passwordController.text,
       _nameController.text,
     );
-    if (success && mounted) {
-      context.go('/');
-    }
+    // GoRouter's redirect handles navigation after auth state changes
   }
 
   @override
@@ -438,10 +432,7 @@ class _RegisterFormState extends State<_RegisterForm> {
             child: OutlinedButton.icon(
               onPressed: auth.isLoading
                   ? null
-                  : () async {
-                      final success = await auth.signInWithGoogle();
-                      if (success && mounted) context.go('/');
-                    },
+                  : () => context.read<AuthProvider>().signInWithGoogle(),
               icon: const Icon(Icons.login, size: 18),
               label: const Text('Sign up with Google'),
               style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),

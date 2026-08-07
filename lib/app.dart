@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import 'config/routes.dart';
@@ -28,19 +29,41 @@ class App extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => AmbulanceProvider()),
         ChangeNotifierProvider(create: (_) => TestProvider()),
       ],
-      child: Builder(
-        builder: (context) {
-          final authProvider = context.watch<AuthProvider>();
-          final router = createRouter(authProvider);
-
-          return MaterialApp.router(
-            title: 'Emergency Healthcare',
-            theme: AppTheme.lightTheme,
-            routerConfig: router,
-            debugShowCheckedModeBanner: false,
-          );
-        },
-      ),
+      child: const _AppRouter(),
     );
+  }
+}
+
+/// Holds a single GoRouter instance so it's not recreated on every
+/// AuthProvider change. GoRouter's [refreshListenable] handles
+/// re-evaluating redirects when auth state changes.
+class _AppRouter extends StatefulWidget {
+  const _AppRouter();
+
+  @override
+  State<_AppRouter> createState() => _AppRouterState();
+}
+
+class _AppRouterState extends State<_AppRouter> {
+  GoRouter? _router;
+
+  @override
+  Widget build(BuildContext context) {
+    // read (not watch!) — we only need the reference once.
+    // GoRouter's refreshListenable re-evaluates redirects internally.
+    _router ??= createRouter(context.read<AuthProvider>());
+
+    return MaterialApp.router(
+      title: 'Emergency Healthcare',
+      theme: AppTheme.lightTheme,
+      routerConfig: _router!,
+      debugShowCheckedModeBanner: false,
+    );
+  }
+
+  @override
+  void dispose() {
+    _router?.dispose();
+    super.dispose();
   }
 }
