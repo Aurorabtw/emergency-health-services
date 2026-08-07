@@ -36,6 +36,14 @@ class _TestSearchScreenState extends State<TestSearchScreen> {
     await orgProvider.fetchVerifiedOrganizations(type: 'hospital');
     await testProvider.fetchTestsForOrganizations(orgProvider.organizations);
 
+    // Fetch real road distances so results match the beds/blood/ambulance pages
+    if (locationProvider.hasLocation) {
+      final destinations = orgProvider.organizations
+          .map((o) => (lat: o.latitude, lng: o.longitude, id: o.id))
+          .toList();
+      await locationProvider.fetchRoadDistances(destinations);
+    }
+
     if (mounted) setState(() => _dataLoaded = true);
   }
 
@@ -59,8 +67,8 @@ class _TestSearchScreenState extends State<TestSearchScreen> {
 
     if (_sortOption == SortOption.distance && locationProvider.hasLocation) {
       results.sort((a, b) {
-        final dA = locationProvider.distanceTo(a.organization.latitude, a.organization.longitude) ?? double.infinity;
-        final dB = locationProvider.distanceTo(b.organization.latitude, b.organization.longitude) ?? double.infinity;
+        final dA = locationProvider.distanceTo(a.organization.latitude, a.organization.longitude, orgId: a.organization.id) ?? double.infinity;
+        final dB = locationProvider.distanceTo(b.organization.latitude, b.organization.longitude, orgId: b.organization.id) ?? double.infinity;
         return dA.compareTo(dB);
       });
     } else if (_sortOption == SortOption.priceLowHigh) {
@@ -129,7 +137,7 @@ class _TestSearchScreenState extends State<TestSearchScreen> {
                 )
               else
                 ...results.map((result) {
-                  final distance = locationProvider.distanceTo(result.organization.latitude, result.organization.longitude);
+                  final distance = locationProvider.distanceTo(result.organization.latitude, result.organization.longitude, orgId: result.organization.id);
 
                   return Card(
                     margin: const EdgeInsets.only(bottom: 12),
