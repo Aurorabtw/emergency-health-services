@@ -7,6 +7,7 @@ import '../../../providers/organization_provider.dart';
 import '../../../shared/widgets/availability_badge.dart';
 import '../../../shared/widgets/map_view.dart';
 import '../../../shared/widgets/price_widget.dart';
+import '../../../shared/widgets/skeleton_loader.dart';
 import '../../../shared/widgets/sort_filter_bar.dart';
 import '../providers/blood_provider.dart';
 
@@ -107,7 +108,7 @@ class _BloodListingsScreenState extends State<BloodListingsScreen> {
                 ),
               const SizedBox(height: 16),
               if (isLoading)
-                const Center(child: Padding(padding: EdgeInsets.all(48), child: CircularProgressIndicator()))
+                const ListingSkeletonList()
               else if (orgs.isEmpty)
                 Center(
                   child: Padding(

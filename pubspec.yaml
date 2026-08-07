@@ -32,6 +32,9 @@ dependencies:
   # Cloudinary (image uploads)
   http: ^1.4.0
 
+  # Typography
+  google_fonts: ^6.2.1
+
   # Utilities
   intl: ^0.20.3
   uuid: ^4.6.0

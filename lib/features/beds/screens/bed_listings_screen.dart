@@ -5,9 +5,11 @@ import 'package:provider/provider.dart';
 import '../../../models/organization_model.dart';
 import '../../../providers/location_provider.dart';
 import '../../../providers/organization_provider.dart';
+import '../../../shared/widgets/app_animations.dart';
 import '../../../shared/widgets/availability_badge.dart';
 import '../../../shared/widgets/map_view.dart';
 import '../../../shared/widgets/price_widget.dart';
+import '../../../shared/widgets/skeleton_loader.dart';
 import '../../../shared/widgets/sort_filter_bar.dart';
 import '../providers/bed_provider.dart';
 
@@ -138,11 +140,13 @@ class _BedListingsScreenState extends State<BedListingsScreen> {
                 ),
               const SizedBox(height: 16),
               if (isLoading)
-                const Center(child: Padding(padding: EdgeInsets.all(48), child: CircularProgressIndicator()))
+                const ListingSkeletonList()
               else if (orgProvider.organizations.isEmpty)
                 _emptyState()
               else
-                ..._sortedHospitals().map((hospital) {
+                ..._sortedHospitals().asMap().entries.map((entry) {
+                  final index = entry.key;
+                  final hospital = entry.value;
                   final beds = bedProvider.getBedsForHospital(hospital.id);
                   final filteredBeds = _bedTypeFilter != null
                       ? beds.where((b) => b.type == _bedTypeFilter).toList()
@@ -150,8 +154,8 @@ class _BedListingsScreenState extends State<BedListingsScreen> {
                   final totalAvailable = filteredBeds.fold(0, (sum, b) => sum + b.availableBeds);
                   final distance = locationProvider.distanceTo(hospital.latitude, hospital.longitude, orgId: hospital.id);
 
-                  return Card(
-                    margin: const EdgeInsets.only(bottom: 12),
+                  final card = Card(
+                    margin: EdgeInsets.zero,
                     child: InkWell(
                       onTap: () => context.go('/beds/book/${hospital.id}'),
                       borderRadius: BorderRadius.circular(12),
@@ -216,6 +220,16 @@ class _BedListingsScreenState extends State<BedListingsScreen> {
                           ],
                         ),
                       ),
+                    ),
+                  );
+
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: FadeSlideIn(
+                      // Stagger the first few cards; later ones appear together
+                      delay: Duration(milliseconds: 60 * (index < 6 ? index : 6)),
+                      duration: const Duration(milliseconds: 400),
+                      child: HoverLift(lift: 2, child: card),
                     ),
                   );
                 }),

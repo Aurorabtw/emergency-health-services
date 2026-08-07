@@ -125,7 +125,7 @@ class _SharedMapViewState extends State<SharedMapView> {
                     return Marker(
                       point: ll.LatLng(m.latitude, m.longitude),
                       width: 36,
-                      height: 44,
+                      height: 46,
                       child: GestureDetector(
                         onTap: () {
                           setState(() {
@@ -150,7 +150,7 @@ class _SharedMapViewState extends State<SharedMapView> {
                               ),
                               child: Text(
                                 '${m.available}',
-                                style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                                style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold, height: 1.2),
                               ),
                             ),
                             Icon(Icons.location_on, color: m.markerColor, size: 24),

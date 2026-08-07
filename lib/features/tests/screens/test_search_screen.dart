@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../providers/location_provider.dart';
 import '../../../providers/organization_provider.dart';
 import '../../../shared/widgets/price_widget.dart';
+import '../../../shared/widgets/skeleton_loader.dart';
 import '../../../shared/widgets/sort_filter_bar.dart';
 import '../providers/test_provider.dart';
 
@@ -105,7 +106,7 @@ class _TestSearchScreenState extends State<TestSearchScreen> {
               ),
               const SizedBox(height: 16),
               if (!_dataLoaded)
-                const Center(child: Padding(padding: EdgeInsets.all(48), child: CircularProgressIndicator()))
+                const ListingSkeletonList()
               else if (_searchController.text.isEmpty)
                 Center(
                   child: Padding(

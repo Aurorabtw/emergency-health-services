@@ -34,6 +34,22 @@ import '../providers/auth_provider.dart';
 
 final navigatorKey = GlobalKey<NavigatorState>();
 
+/// Fade-through transition used for all in-shell navigation.
+/// Opacity-only animation — cheap to composite, no layout work.
+CustomTransitionPage<void> _fadePage(GoRouterState state, Widget child) {
+  return CustomTransitionPage<void>(
+    key: state.pageKey,
+    child: child,
+    transitionDuration: const Duration(milliseconds: 220),
+    transitionsBuilder: (context, animation, secondaryAnimation, child) {
+      return FadeTransition(
+        opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
+        child: child,
+      );
+    },
+  );
+}
+
 GoRouter createRouter(AuthProvider authProvider) {
   return GoRouter(
     navigatorKey: navigatorKey,
@@ -81,43 +97,47 @@ GoRouter createRouter(AuthProvider authProvider) {
       ShellRoute(
         builder: (_, __, child) => AppShell(child: child),
         routes: [
-          GoRoute(path: '/', builder: (_, __) => const HomeScreen()),
-          GoRoute(path: '/beds', builder: (_, __) => const BedListingsScreen()),
+          GoRoute(path: '/', pageBuilder: (_, state) => _fadePage(state, const HomeScreen())),
+          GoRoute(path: '/beds', pageBuilder: (_, state) => _fadePage(state, const BedListingsScreen())),
           GoRoute(
             path: '/beds/book/:orgId',
-            builder: (_, state) => BedBookingScreen(organizationId: state.pathParameters['orgId']!),
+            pageBuilder: (_, state) =>
+                _fadePage(state, BedBookingScreen(organizationId: state.pathParameters['orgId']!)),
           ),
-          GoRoute(path: '/ambulance', builder: (_, __) => const AmbulanceListingsScreen()),
+          GoRoute(path: '/ambulance', pageBuilder: (_, state) => _fadePage(state, const AmbulanceListingsScreen())),
           GoRoute(
             path: '/ambulance/book/:orgId',
-            builder: (_, state) => AmbulanceBookingScreen(organizationId: state.pathParameters['orgId']!),
+            pageBuilder: (_, state) =>
+                _fadePage(state, AmbulanceBookingScreen(organizationId: state.pathParameters['orgId']!)),
           ),
-          GoRoute(path: '/blood', builder: (_, __) => const BloodListingsScreen()),
+          GoRoute(path: '/blood', pageBuilder: (_, state) => _fadePage(state, const BloodListingsScreen())),
           GoRoute(
             path: '/blood/request/:orgId',
-            builder: (_, state) => BloodRequestScreen(organizationId: state.pathParameters['orgId']!),
+            pageBuilder: (_, state) =>
+                _fadePage(state, BloodRequestScreen(organizationId: state.pathParameters['orgId']!)),
           ),
-          GoRoute(path: '/tests', builder: (_, __) => const TestSearchScreen()),
-          GoRoute(path: '/my-bookings', builder: (_, __) => const MyBookingsScreen()),
+          GoRoute(path: '/tests', pageBuilder: (_, state) => _fadePage(state, const TestSearchScreen())),
+          GoRoute(path: '/my-bookings', pageBuilder: (_, state) => _fadePage(state, const MyBookingsScreen())),
           GoRoute(
             path: '/booking/:id',
-            builder: (_, state) => BookingDetailScreen(bookingId: state.pathParameters['id']!),
+            pageBuilder: (_, state) =>
+                _fadePage(state, BookingDetailScreen(bookingId: state.pathParameters['id']!)),
           ),
-          GoRoute(path: '/profile', builder: (_, __) => const ProfileScreen()),
+          GoRoute(path: '/profile', pageBuilder: (_, state) => _fadePage(state, const ProfileScreen())),
 
           // Admin routes
-          GoRoute(path: '/admin/dashboard', builder: (_, __) => const OrgAdminDashboard()),
-          GoRoute(path: '/admin/beds', builder: (_, __) => const ManageBedsScreen()),
-          GoRoute(path: '/admin/ambulances', builder: (_, __) => const ManageFleetScreen()),
-          GoRoute(path: '/admin/blood-stock', builder: (_, __) => const ManageBloodStockScreen()),
-          GoRoute(path: '/admin/tests', builder: (_, __) => const ManageTestsScreen()),
-          GoRoute(path: '/admin/requests', builder: (_, __) => const _AdminRequestsRouter()),
+          GoRoute(path: '/admin/dashboard', pageBuilder: (_, state) => _fadePage(state, const OrgAdminDashboard())),
+          GoRoute(path: '/admin/beds', pageBuilder: (_, state) => _fadePage(state, const ManageBedsScreen())),
+          GoRoute(path: '/admin/ambulances', pageBuilder: (_, state) => _fadePage(state, const ManageFleetScreen())),
+          GoRoute(path: '/admin/blood-stock', pageBuilder: (_, state) => _fadePage(state, const ManageBloodStockScreen())),
+          GoRoute(path: '/admin/tests', pageBuilder: (_, state) => _fadePage(state, const ManageTestsScreen())),
+          GoRoute(path: '/admin/requests', pageBuilder: (_, state) => _fadePage(state, const _AdminRequestsRouter())),
 
           // Super Admin routes
-          GoRoute(path: '/super-admin/dashboard', builder: (_, __) => const SuperAdminDashboard()),
-          GoRoute(path: '/super-admin/organizations', builder: (_, __) => const ManageOrganizationsScreen()),
-          GoRoute(path: '/super-admin/users', builder: (_, __) => const ManageUsersScreen()),
-          GoRoute(path: '/super-admin/requests', builder: (_, __) => const _SuperAdminRequestsView()),
+          GoRoute(path: '/super-admin/dashboard', pageBuilder: (_, state) => _fadePage(state, const SuperAdminDashboard())),
+          GoRoute(path: '/super-admin/organizations', pageBuilder: (_, state) => _fadePage(state, const ManageOrganizationsScreen())),
+          GoRoute(path: '/super-admin/users', pageBuilder: (_, state) => _fadePage(state, const ManageUsersScreen())),
+          GoRoute(path: '/super-admin/requests', pageBuilder: (_, state) => _fadePage(state, const _SuperAdminRequestsView())),
         ],
       ),
     ],

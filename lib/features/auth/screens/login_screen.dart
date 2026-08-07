@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
+import '../../../config/theme.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../shared/utils/validators.dart';
+import '../../../shared/widgets/app_animations.dart';
 
 /// Unified login screen with Email/Password and Google Sign-In.
 class LoginScreen extends StatefulWidget {
@@ -37,53 +39,94 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 420),
-            child: Card(
-              child: Padding(
-                padding: const EdgeInsets.all(32),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // Header
-                    Icon(Icons.local_hospital, size: 56, color: Theme.of(context).colorScheme.primary),
-                    const SizedBox(height: 12),
-                    Text(
-                      'Emergency Healthcare',
-                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      _isForgotPassword
-                          ? 'Reset your password'
-                          : _isRegisterMode
-                              ? 'Create a new account'
-                              : 'Sign in to book beds, ambulances, and more',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey.shade600),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 28),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFFEFF5FF), Color(0xFFF6F8FB), Color(0xFFEDFAF8)],
+          ),
+        ),
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 440),
+              child: FadeSlideIn(
+                child: Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(36),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Header
+                        Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [AppTheme.primary, AppTheme.accent],
+                            ),
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: const Icon(Icons.local_hospital_rounded, size: 34, color: Colors.white),
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          'Emergency Healthcare',
+                          style: Theme.of(context).textTheme.headlineSmall,
+                        ),
+                        const SizedBox(height: 6),
+                        AnimatedSwitcher(
+                          duration: AppTheme.normal,
+                          child: Text(
+                            _isForgotPassword
+                                ? 'Reset your password'
+                                : _isRegisterMode
+                                    ? 'Create a new account'
+                                    : 'Sign in to book beds, ambulances, and more',
+                            key: ValueKey('$_isForgotPassword-$_isRegisterMode'),
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodyMedium
+                                ?.copyWith(color: AppTheme.textSecondary),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                        const SizedBox(height: 28),
 
-                    // Form
-                    if (_isForgotPassword)
-                      _ForgotPasswordForm(onBack: _switchToLogin)
-                    else if (_isRegisterMode)
-                      _RegisterForm(onSwitchToLogin: _switchToLogin)
-                    else
-                      _LoginForm(
-                        onSwitchToRegister: _switchToRegister,
-                        onForgotPassword: _switchToForgotPassword,
-                      ),
+                        // Form — animate size + cross-fade between modes
+                        AnimatedSize(
+                          duration: AppTheme.normal,
+                          curve: AppTheme.easeOut,
+                          alignment: Alignment.topCenter,
+                          child: AnimatedSwitcher(
+                            duration: AppTheme.normal,
+                            switchInCurve: Curves.easeOut,
+                            switchOutCurve: Curves.easeIn,
+                            transitionBuilder: (child, animation) =>
+                                FadeTransition(opacity: animation, child: child),
+                            child: _isForgotPassword
+                                ? _ForgotPasswordForm(key: const ValueKey('forgot'), onBack: _switchToLogin)
+                                : _isRegisterMode
+                                    ? _RegisterForm(key: const ValueKey('register'), onSwitchToLogin: _switchToLogin)
+                                    : _LoginForm(
+                                        key: const ValueKey('login'),
+                                        onSwitchToRegister: _switchToRegister,
+                                        onForgotPassword: _switchToForgotPassword,
+                                      ),
+                          ),
+                        ),
 
-                    const SizedBox(height: 16),
-                    TextButton(
-                      onPressed: () => context.go('/'),
-                      child: const Text('Continue browsing without signing in'),
+                        const SizedBox(height: 16),
+                        TextButton(
+                          onPressed: () => context.go('/'),
+                          child: const Text('Continue browsing without signing in'),
+                        ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
               ),
             ),
@@ -102,7 +145,7 @@ class _LoginForm extends StatefulWidget {
   final VoidCallback onSwitchToRegister;
   final VoidCallback onForgotPassword;
 
-  const _LoginForm({required this.onSwitchToRegister, required this.onForgotPassword});
+  const _LoginForm({super.key, required this.onSwitchToRegister, required this.onForgotPassword});
 
   @override
   State<_LoginForm> createState() => _LoginFormState();
@@ -271,7 +314,7 @@ class _LoginFormState extends State<_LoginForm> {
 class _RegisterForm extends StatefulWidget {
   final VoidCallback onSwitchToLogin;
 
-  const _RegisterForm({required this.onSwitchToLogin});
+  const _RegisterForm({super.key, required this.onSwitchToLogin});
 
   @override
   State<_RegisterForm> createState() => _RegisterFormState();
@@ -464,7 +507,7 @@ class _RegisterFormState extends State<_RegisterForm> {
 class _ForgotPasswordForm extends StatefulWidget {
   final VoidCallback onBack;
 
-  const _ForgotPasswordForm({required this.onBack});
+  const _ForgotPasswordForm({super.key, required this.onBack});
 
   @override
   State<_ForgotPasswordForm> createState() => _ForgotPasswordFormState();
