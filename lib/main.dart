@@ -17,8 +17,11 @@ void main() async {
   // every Firestore read hang forever even though plain HTTPS works. Long
   // polling uses ordinary HTTP requests, so reads succeed everywhere. This
   // matters for an emergency app used on unpredictable networks/devices.
+  //
+  // Persistence is intentionally left at its default (off on web): enabling
+  // the IndexedDB cache can stall collection queries in restricted/multi-tab
+  // environments, and the app always wants fresh data anyway.
   FirebaseFirestore.instance.settings = const Settings(
-    persistenceEnabled: true,
     webExperimentalForceLongPolling: true,
   );
 
