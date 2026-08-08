@@ -1,0 +1,38 @@
+name: Deploy to Firebase Hosting
+
+on:
+  push:
+    branches:
+      - ui-redesign
+
+jobs:
+  build_and_deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+      - run: flutter build web --release
+
+      # Gate: only deploy when the service-account secret has been added.
+      # Until then the build still runs (validating the app compiles),
+      # and the deploy step is skipped so the workflow stays green.
+      - name: Check for deploy credential
+        id: check
+        env:
+          SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HEALTH_HUB_SDP4 }}
+        run: echo "present=${SA:+yes}" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy to Firebase Hosting
+        if: steps.check.outputs.present == 'yes'
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_HEALTH_HUB_SDP4 }}
+          channelId: live
+          projectId: health-hub-sdp4
