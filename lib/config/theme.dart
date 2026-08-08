@@ -212,9 +212,13 @@ class AppTheme {
       ),
 
       pageTransitionsTheme: const PageTransitionsTheme(
+        // FadeUpwards on every platform — a consistent, lightweight
+        // full-page transition. (In-shell route changes use the custom
+        // 220ms fade in routes.dart.) Avoids CupertinoPageTransitionsBuilder,
+        // which isn't exported from material.dart on newer Flutter versions.
         builders: {
           TargetPlatform.android: FadeUpwardsPageTransitionsBuilder(),
-          TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+          TargetPlatform.iOS: FadeUpwardsPageTransitionsBuilder(),
           TargetPlatform.macOS: FadeUpwardsPageTransitionsBuilder(),
           TargetPlatform.windows: FadeUpwardsPageTransitionsBuilder(),
           TargetPlatform.linux: FadeUpwardsPageTransitionsBuilder(),
