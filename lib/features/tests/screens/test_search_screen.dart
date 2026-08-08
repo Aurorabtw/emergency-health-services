@@ -32,19 +32,19 @@ class _TestSearchScreenState extends State<TestSearchScreen> {
     final testProvider = context.read<TestProvider>();
     final locationProvider = context.read<LocationProvider>();
 
-    await locationProvider.getCurrentLocation();
+    // Load data first so the page renders even if location is slow or denied.
     await orgProvider.fetchVerifiedOrganizations(type: 'hospital');
     await testProvider.fetchTestsForOrganizations(orgProvider.organizations);
+    if (mounted) setState(() => _dataLoaded = true);
 
-    // Fetch real road distances so results match the beds/blood/ambulance pages
+    // Location + road distances are a non-blocking enhancement for distance sorting.
+    await locationProvider.getCurrentLocation();
     if (locationProvider.hasLocation) {
       final destinations = orgProvider.organizations
           .map((o) => (lat: o.latitude, lng: o.longitude, id: o.id))
           .toList();
       await locationProvider.fetchRoadDistances(destinations);
     }
-
-    if (mounted) setState(() => _dataLoaded = true);
   }
 
   void _onSearch(String query) {

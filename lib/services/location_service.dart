@@ -8,21 +8,38 @@ class LocationService {
   /// Key: "lat1,lng1→lat2,lng2", Value: distance in km.
   final Map<String, double> _roadDistanceCache = {};
 
+  /// Best-effort current position. Returns null (never hangs) if location
+  /// is unavailable, denied, or slow — callers fall back to no-distance mode.
+  ///
+  /// Every await is guarded by a timeout: on the web, a denied/ignored
+  /// permission prompt or a stalled fix can otherwise block forever, which
+  /// would freeze any screen that awaits location before loading its data.
   Future<Position?> getCurrentPosition() async {
-    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) return null;
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled()
+          .timeout(const Duration(seconds: 4), onTimeout: () => false);
+      if (!serviceEnabled) return null;
 
-    LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) return null;
+      LocationPermission permission = await Geolocator.checkPermission()
+          .timeout(const Duration(seconds: 4), onTimeout: () => LocationPermission.denied);
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission()
+            .timeout(const Duration(seconds: 8), onTimeout: () => LocationPermission.denied);
+        if (permission == LocationPermission.denied) return null;
+      }
+
+      if (permission == LocationPermission.deniedForever) return null;
+
+      return await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 8),
+        ),
+      );
+    } catch (_) {
+      // Any timeout or platform error → proceed without a location.
+      return null;
     }
-
-    if (permission == LocationPermission.deniedForever) return null;
-
-    return Geolocator.getCurrentPosition(
-      locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
-    );
   }
 
   /// Straight-line distance using the Haversine formula (fallback).

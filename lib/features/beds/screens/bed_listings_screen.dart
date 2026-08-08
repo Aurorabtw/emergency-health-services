@@ -35,11 +35,12 @@ class _BedListingsScreenState extends State<BedListingsScreen> {
     final bedProvider = context.read<BedProvider>();
     final locationProvider = context.read<LocationProvider>();
 
-    await locationProvider.getCurrentLocation();
+    // Load listings first so the page renders even if location is slow or denied.
     await orgProvider.fetchVerifiedOrganizations(type: 'hospital');
     await bedProvider.fetchBedsForHospitals(orgProvider.organizations);
 
-    // Fetch road distances for all hospitals
+    // Location + road distances are a non-blocking enhancement for distance sorting.
+    await locationProvider.getCurrentLocation();
     if (locationProvider.hasLocation) {
       final destinations = orgProvider.organizations
           .map((o) => (lat: o.latitude, lng: o.longitude, id: o.id))
