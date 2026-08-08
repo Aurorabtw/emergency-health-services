@@ -57,7 +57,13 @@ class DefaultFirebaseOptions {
     appId: '1:283550717462:web:4459af8b8feab407538737',
     messagingSenderId: '283550717462',
     projectId: 'health-hub-sdp4',
-    authDomain: 'health-hub-sdp4.firebaseapp.com',
+    // Same-origin auth domain (the hosting domain, which serves /__/auth/).
+    // The default firebaseapp.com authDomain runs Firebase Auth's token
+    // machinery in a cross-origin iframe, which Safari ITP and mobile
+    // Chrome/Brave storage partitioning block — that stalls token refresh
+    // and leaves authenticated Firestore queries hanging with no request
+    // ever sent. Using the hosting origin keeps the iframe first-party.
+    authDomain: 'health-hub-sdp4.web.app',
     storageBucket: 'health-hub-sdp4.firebasestorage.app',
   );
 }
