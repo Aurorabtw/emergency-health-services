@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -8,7 +10,9 @@ import '../../../providers/auth_provider.dart';
 import '../../../providers/booking_provider.dart';
 import '../../../providers/location_provider.dart';
 import '../../../providers/organization_provider.dart';
+import '../../../services/storage_service.dart';
 import '../../../shared/utils/validators.dart';
+import '../../../shared/widgets/prescription_upload_field.dart';
 import '../../../shared/widgets/price_widget.dart';
 import '../../../shared/widgets/profile_completion_dialog.dart';
 import '../providers/ambulance_provider.dart';
@@ -32,8 +36,11 @@ class _AmbulanceBookingScreenState extends State<AmbulanceBookingScreen> {
   String? _selectedType;
   String? _selectedDestination;
   List<OrganizationModel> _hospitals = [];
+  Uint8List? _prescriptionImage;
+  String? _prescriptionFileName;
   bool _isLoading = false;
   bool _isSubmitting = false;
+  bool _locatingPickup = false;
 
   @override
   void initState() {
@@ -48,17 +55,31 @@ class _AmbulanceBookingScreenState extends State<AmbulanceBookingScreen> {
     _nameController.text = auth.user?.name ?? '';
     _phoneController.text = auth.user?.phone ?? '';
 
-    final locationProvider = context.read<LocationProvider>();
-    if (locationProvider.hasLocation) {
-      _pickupController.text = 'Current Location (${locationProvider.latitude!.toStringAsFixed(4)}, ${locationProvider.longitude!.toStringAsFixed(4)})';
-    }
-
     final orgProvider = context.read<OrganizationProvider>();
     final org = await orgProvider.getOrganization(widget.organizationId);
     await context.read<AmbulanceProvider>().fetchAmbulancesForOrg(widget.organizationId);
     final hospitals = await orgProvider.getVerifiedByType('hospital');
 
     if (mounted) setState(() { _operator = org; _hospitals = hospitals; _isLoading = false; });
+
+    // Auto-detect the pickup location so the user doesn't have to type it.
+    // Runs after the form renders so a slow/denied GPS prompt never blocks it.
+    await _detectPickupLocation();
+  }
+
+  /// Populates the pickup field from the device's current location.
+  Future<void> _detectPickupLocation() async {
+    final locationProvider = context.read<LocationProvider>();
+    setState(() => _locatingPickup = true);
+    if (!locationProvider.hasLocation) {
+      await locationProvider.getCurrentLocation();
+    }
+    if (!mounted) return;
+    if (locationProvider.hasLocation) {
+      _pickupController.text =
+          'Current Location (${locationProvider.latitude!.toStringAsFixed(4)}, ${locationProvider.longitude!.toStringAsFixed(4)})';
+    }
+    setState(() => _locatingPickup = false);
   }
 
   double? _estimateFare() {
@@ -83,6 +104,14 @@ class _AmbulanceBookingScreenState extends State<AmbulanceBookingScreen> {
     try {
       final locationProvider = context.read<LocationProvider>();
 
+      // Prescription is required, so the form validator guarantees it's set.
+      final storage = StorageService();
+      final imageUrl = await storage.uploadFile(
+        path: 'prescriptions/${auth.user!.uid}/${DateTime.now().millisecondsSinceEpoch}_$_prescriptionFileName',
+        data: _prescriptionImage!,
+        contentType: 'image/jpeg',
+      );
+
       final booking = BookingRequestModel(
         id: '',
         type: 'ambulance',
@@ -98,6 +127,7 @@ class _AmbulanceBookingScreenState extends State<AmbulanceBookingScreen> {
         pickupAddress: _pickupController.text.trim(),
         destinationAddress: _selectedDestination,
         patientConditionNotes: _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),
+        prescriptionImageUrl: imageUrl,
         estimatedPrice: _estimateFare(),
       );
 
@@ -179,7 +209,21 @@ class _AmbulanceBookingScreenState extends State<AmbulanceBookingScreen> {
                     const SizedBox(height: 16),
                     TextFormField(
                       controller: _pickupController,
-                      decoration: const InputDecoration(labelText: 'Pickup Location', prefixIcon: Icon(Icons.my_location)),
+                      decoration: InputDecoration(
+                        labelText: 'Pickup Location',
+                        prefixIcon: const Icon(Icons.my_location),
+                        helperText: 'Auto-detected from your current location — edit if needed',
+                        suffixIcon: _locatingPickup
+                            ? const Padding(
+                                padding: EdgeInsets.all(12),
+                                child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+                              )
+                            : IconButton(
+                                icon: const Icon(Icons.gps_fixed),
+                                tooltip: 'Use current location',
+                                onPressed: _detectPickupLocation,
+                              ),
+                      ),
                       validator: (v) => Validators.validateRequired(v, 'Pickup location'),
                     ),
                     const SizedBox(height: 12),
@@ -252,6 +296,13 @@ class _AmbulanceBookingScreenState extends State<AmbulanceBookingScreen> {
                       controller: _notesController,
                       decoration: const InputDecoration(labelText: 'Patient Condition Notes (optional)', prefixIcon: Icon(Icons.notes)),
                       maxLines: 3,
+                    ),
+                    const SizedBox(height: 16),
+                    PrescriptionUploadField(
+                      onChanged: (bytes, name) => setState(() {
+                        _prescriptionImage = bytes;
+                        _prescriptionFileName = name;
+                      }),
                     ),
                     const SizedBox(height: 24),
                     SizedBox(

@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -7,7 +9,9 @@ import '../../../models/organization_model.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/booking_provider.dart';
 import '../../../providers/organization_provider.dart';
+import '../../../services/storage_service.dart';
 import '../../../shared/utils/validators.dart';
+import '../../../shared/widgets/prescription_upload_field.dart';
 import '../../../shared/widgets/price_widget.dart';
 import '../../../shared/widgets/profile_completion_dialog.dart';
 import '../providers/blood_provider.dart';
@@ -31,6 +35,8 @@ class _BloodRequestScreenState extends State<BloodRequestScreen> {
   String? _selectedBloodType;
   String? _selectedHospital;
   List<OrganizationModel> _hospitals = [];
+  Uint8List? _prescriptionImage;
+  String? _prescriptionFileName;
   bool _isLoading = false;
   bool _isSubmitting = false;
 
@@ -75,6 +81,14 @@ class _BloodRequestScreenState extends State<BloodRequestScreen> {
       final units = int.parse(_unitsController.text);
       final estimatedPrice = match.processingFeePerUnit * units;
 
+      // Prescription is required, so the form validator guarantees it's set.
+      final storage = StorageService();
+      final imageUrl = await storage.uploadFile(
+        path: 'prescriptions/${auth.user!.uid}/${DateTime.now().millisecondsSinceEpoch}_$_prescriptionFileName',
+        data: _prescriptionImage!,
+        contentType: 'image/jpeg',
+      );
+
       final booking = BookingRequestModel(
         id: '',
         type: 'blood',
@@ -88,6 +102,7 @@ class _BloodRequestScreenState extends State<BloodRequestScreen> {
         unitsNeeded: units,
         hospitalName: _selectedHospital,
         prescribingDoctor: _doctorController.text.trim(),
+        prescriptionImageUrl: imageUrl,
         estimatedPrice: estimatedPrice,
       );
 
@@ -254,6 +269,13 @@ class _BloodRequestScreenState extends State<BloodRequestScreen> {
                       controller: _doctorController,
                       decoration: const InputDecoration(labelText: 'Prescribing Doctor', prefixIcon: Icon(Icons.medical_services)),
                       validator: (v) => Validators.validateRequired(v, 'Doctor name'),
+                    ),
+                    const SizedBox(height: 16),
+                    PrescriptionUploadField(
+                      onChanged: (bytes, name) => setState(() {
+                        _prescriptionImage = bytes;
+                        _prescriptionFileName = name;
+                      }),
                     ),
                     const SizedBox(height: 24),
                     SizedBox(

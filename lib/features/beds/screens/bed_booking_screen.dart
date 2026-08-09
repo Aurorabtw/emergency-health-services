@@ -2,7 +2,6 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
 import '../../../models/booking_request_model.dart';
@@ -12,6 +11,7 @@ import '../../../providers/booking_provider.dart';
 import '../../../providers/organization_provider.dart';
 import '../../../services/storage_service.dart';
 import '../../../shared/utils/validators.dart';
+import '../../../shared/widgets/prescription_upload_field.dart';
 import '../../../shared/widgets/price_widget.dart';
 import '../../../shared/widgets/profile_completion_dialog.dart';
 import '../providers/bed_provider.dart';
@@ -60,18 +60,6 @@ class _BedBookingScreenState extends State<BedBookingScreen> {
     }
   }
 
-  Future<void> _pickImage() async {
-    final picker = ImagePicker();
-    final file = await picker.pickImage(source: ImageSource.gallery, maxWidth: 1200);
-    if (file != null) {
-      final bytes = await file.readAsBytes();
-      setState(() {
-        _prescriptionImage = bytes;
-        _prescriptionFileName = file.name;
-      });
-    }
-  }
-
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     if (_selectedBedType == null) {
@@ -91,15 +79,13 @@ class _BedBookingScreenState extends State<BedBookingScreen> {
     setState(() => _isSubmitting = true);
 
     try {
-      String? imageUrl;
-      if (_prescriptionImage != null) {
-        final storage = StorageService();
-        imageUrl = await storage.uploadFile(
-          path: 'prescriptions/${auth.user!.uid}/${DateTime.now().millisecondsSinceEpoch}_$_prescriptionFileName',
-          data: _prescriptionImage!,
-          contentType: 'image/jpeg',
-        );
-      }
+      // Prescription is required, so the form validator guarantees it's set.
+      final storage = StorageService();
+      final imageUrl = await storage.uploadFile(
+        path: 'prescriptions/${auth.user!.uid}/${DateTime.now().millisecondsSinceEpoch}_$_prescriptionFileName',
+        data: _prescriptionImage!,
+        contentType: 'image/jpeg',
+      );
 
       final bedProvider = context.read<BedProvider>();
       final beds = bedProvider.getBedsForHospital(widget.organizationId);
@@ -214,10 +200,11 @@ class _BedBookingScreenState extends State<BedBookingScreen> {
                       validator: Validators.validatePhone,
                     ),
                     const SizedBox(height: 16),
-                    OutlinedButton.icon(
-                      onPressed: _pickImage,
-                      icon: const Icon(Icons.upload_file),
-                      label: Text(_prescriptionFileName ?? 'Upload Prescription (optional)'),
+                    PrescriptionUploadField(
+                      onChanged: (bytes, name) => setState(() {
+                        _prescriptionImage = bytes;
+                        _prescriptionFileName = name;
+                      }),
                     ),
                     const SizedBox(height: 24),
                     SizedBox(
