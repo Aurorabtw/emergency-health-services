@@ -18,18 +18,23 @@ class BloodProvider extends ChangeNotifier {
   List<BloodStockModel> getStockForOrg(String orgId) => _orgBloodStock[orgId] ?? [];
 
   Future<void> fetchStockForOrganizations(List<OrganizationModel> orgs) async {
-    _isLoading = true;
+    // Stale-while-revalidate: only show a skeleton on the first load.
+    if (_orgBloodStock.isEmpty) {
+      _isLoading = true;
+      notifyListeners();
+    }
     _error = null;
-    notifyListeners();
 
     try {
-      _orgBloodStock = {};
-      for (final org in orgs) {
+      // Fetch every bank's stock concurrently instead of one-at-a-time.
+      final entries = await Future.wait(orgs.map((org) async {
         final snapshot = await _firestoreService.getCollection('organizations/${org.id}/blood_stock');
-        _orgBloodStock[org.id] = snapshot.docs
-            .map((doc) => BloodStockModel.fromFirestore(doc, org.id))
-            .toList();
-      }
+        return MapEntry(
+          org.id,
+          snapshot.docs.map((doc) => BloodStockModel.fromFirestore(doc, org.id)).toList(),
+        );
+      }));
+      _orgBloodStock = Map.fromEntries(entries);
     } catch (e) {
       _error = 'Failed to load blood stock: $e';
     }

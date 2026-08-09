@@ -7,6 +7,7 @@ class OrganizationProvider extends ChangeNotifier {
   final FirestoreService _firestoreService = FirestoreService();
 
   List<OrganizationModel> _organizations = [];
+  String? _loadedType;
   bool _isLoading = false;
   String? _error;
 
@@ -35,9 +36,14 @@ class OrganizationProvider extends ChangeNotifier {
   }
 
   Future<void> fetchVerifiedOrganizations({String? type}) async {
-    _isLoading = true;
+    // Stale-while-revalidate, but only when the cached list is the same type.
+    // Switching tabs (e.g. hospitals → blood banks) must still show a skeleton
+    // rather than briefly rendering the previous tab's organizations.
+    if (_organizations.isEmpty || _loadedType != type) {
+      _isLoading = true;
+      notifyListeners();
+    }
     _error = null;
-    notifyListeners();
 
     try {
       final filters = <QueryFilter>[
@@ -52,6 +58,7 @@ class OrganizationProvider extends ChangeNotifier {
         filters: filters,
       );
       _organizations = snapshot.docs.map((doc) => OrganizationModel.fromFirestore(doc)).toList();
+      _loadedType = type;
     } catch (e) {
       _error = 'Failed to load organizations: $e';
     }

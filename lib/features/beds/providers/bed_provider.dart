@@ -18,20 +18,27 @@ class BedProvider extends ChangeNotifier {
   List<BedTypeModel> getBedsForHospital(String orgId) => _hospitalBeds[orgId] ?? [];
 
   Future<void> fetchBedsForHospitals(List<OrganizationModel> hospitals) async {
-    _isLoading = true;
+    // Stale-while-revalidate: only show a skeleton on the first load. On
+    // refresh, keep the cached data on screen and update it in place.
+    if (_hospitalBeds.isEmpty) {
+      _isLoading = true;
+      notifyListeners();
+    }
     _error = null;
-    notifyListeners();
 
     try {
-      _hospitalBeds = {};
-      for (final hospital in hospitals) {
+      // Fetch every hospital's beds concurrently instead of one-at-a-time,
+      // turning N sequential round-trips into a single parallel batch.
+      final entries = await Future.wait(hospitals.map((hospital) async {
         final snapshot = await _firestoreService.getCollection(
           'organizations/${hospital.id}/beds',
         );
-        _hospitalBeds[hospital.id] = snapshot.docs
-            .map((doc) => BedTypeModel.fromFirestore(doc, hospital.id))
-            .toList();
-      }
+        return MapEntry(
+          hospital.id,
+          snapshot.docs.map((doc) => BedTypeModel.fromFirestore(doc, hospital.id)).toList(),
+        );
+      }));
+      _hospitalBeds = Map.fromEntries(entries);
     } catch (e) {
       _error = 'Failed to load bed data: $e';
     }
