@@ -109,12 +109,24 @@ class AuthProvider extends ChangeNotifier {
       notifyListeners();
       final result = await _authService.signInWithGoogle();
       if (result == null) {
-        // User cancelled the popup — reset loading state
+        // Defensive: signInWithPopup normally throws rather than returning
+        // null, but reset the loading state just in case.
         _isLoading = false;
         notifyListeners();
       }
       // On success, _onAuthStateChanged handles loading state
       return result != null;
+    } on FirebaseAuthException catch (e) {
+      _isLoading = false;
+      // The user closing the popup or a duplicate request isn't a real
+      // failure — don't nag them with an error message.
+      if (e.code != 'popup-closed-by-user' &&
+          e.code != 'cancelled-popup-request' &&
+          e.code != 'user-cancelled') {
+        _error = _mapAuthError(e.code);
+      }
+      notifyListeners();
+      return false;
     } catch (e) {
       _isLoading = false;
       _error = 'Google sign-in failed. Please try again.';
@@ -281,6 +293,14 @@ class AuthProvider extends ChangeNotifier {
         return 'Too many attempts. Please wait a moment and try again.';
       case 'network-request-failed':
         return 'Network error. Check your internet connection.';
+      case 'popup-blocked':
+        return 'The sign-in popup was blocked by your browser. Please allow popups and try again.';
+      case 'unauthorized-domain':
+        return 'This domain isn\'t authorized for sign-in. Contact support.';
+      case 'account-exists-with-different-credential':
+        return 'An account already exists with this email using a different sign-in method.';
+      case 'operation-not-allowed':
+        return 'Google sign-in isn\'t enabled for this app. Contact support.';
       default:
         return 'Authentication error: $code';
     }

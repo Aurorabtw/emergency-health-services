@@ -1,5 +1,4 @@
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart';
 
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -11,15 +10,13 @@ class AuthService {
   // ── Google Sign-In ──
 
   Future<UserCredential?> signInWithGoogle() async {
-    try {
-      final provider = GoogleAuthProvider();
-      provider.addScope('email');
-      provider.addScope('profile');
-      return await _auth.signInWithPopup(provider);
-    } catch (e) {
-      debugPrint('Google Sign-In error: $e');
-      return null;
-    }
+    final provider = GoogleAuthProvider();
+    provider.addScope('email');
+    provider.addScope('profile');
+    // Let errors propagate so the caller can distinguish a user-cancelled
+    // popup from a real failure (config error, blocked popup, etc.) and
+    // surface a meaningful message instead of silently returning null.
+    return await _auth.signInWithPopup(provider);
   }
 
   // ── Email + Password ──
