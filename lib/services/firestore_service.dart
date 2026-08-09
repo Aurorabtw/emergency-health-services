@@ -47,6 +47,13 @@ class FirestoreService {
     return query.get();
   }
 
+  /// Fetches every document in a subcollection across ALL parents in one
+  /// request (e.g. all `beds` under every organization). The caller derives
+  /// each doc's parent via `doc.reference.parent.parent`.
+  Future<QuerySnapshot> getCollectionGroup(String collectionId) {
+    return _db.collectionGroup(collectionId).get();
+  }
+
   Stream<QuerySnapshot> streamCollection(
     String path, {
     List<QueryFilter>? filters,

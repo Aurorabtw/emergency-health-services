@@ -28,15 +28,17 @@ class TestProvider extends ChangeNotifier {
     _error = null;
 
     try {
-      // Fetch every org's test catalogue concurrently instead of one-at-a-time.
-      final entries = await Future.wait(orgs.map((org) async {
-        final snapshot = await _firestoreService.getCollection('organizations/${org.id}/tests');
-        return MapEntry(
-          org.id,
-          snapshot.docs.map((doc) => DiagnosticTestModel.fromFirestore(doc, org.id)).toList(),
-        );
-      }));
-      _orgTests = Map.fromEntries(entries);
+      // One collectionGroup query fetches every org's test catalogue in a
+      // single round-trip, instead of one request per org.
+      final orgIds = orgs.map((o) => o.id).toSet();
+      final snapshot = await _firestoreService.getCollectionGroup('tests');
+      final map = {for (final id in orgIds) id: <DiagnosticTestModel>[]};
+      for (final doc in snapshot.docs) {
+        final orgId = doc.reference.parent.parent?.id;
+        if (orgId == null || !map.containsKey(orgId)) continue;
+        map[orgId]!.add(DiagnosticTestModel.fromFirestore(doc, orgId));
+      }
+      _orgTests = map;
     } catch (e) {
       _error = 'Failed to load tests: $e';
     }

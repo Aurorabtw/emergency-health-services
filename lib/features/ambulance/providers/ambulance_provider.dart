@@ -26,15 +26,17 @@ class AmbulanceProvider extends ChangeNotifier {
     _error = null;
 
     try {
-      // Fetch every operator's fleet concurrently instead of one-at-a-time.
-      final entries = await Future.wait(operators.map((op) async {
-        final snapshot = await _firestoreService.getCollection('organizations/${op.id}/ambulances');
-        return MapEntry(
-          op.id,
-          snapshot.docs.map((doc) => AmbulanceModel.fromFirestore(doc, op.id)).toList(),
-        );
-      }));
-      _orgAmbulances = Map.fromEntries(entries);
+      // One collectionGroup query fetches every operator's fleet in a single
+      // round-trip, instead of one request per operator.
+      final orgIds = operators.map((o) => o.id).toSet();
+      final snapshot = await _firestoreService.getCollectionGroup('ambulances');
+      final map = {for (final id in orgIds) id: <AmbulanceModel>[]};
+      for (final doc in snapshot.docs) {
+        final orgId = doc.reference.parent.parent?.id;
+        if (orgId == null || !map.containsKey(orgId)) continue;
+        map[orgId]!.add(AmbulanceModel.fromFirestore(doc, orgId));
+      }
+      _orgAmbulances = map;
     } catch (e) {
       _error = 'Failed to load ambulances: $e';
     }

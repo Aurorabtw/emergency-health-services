@@ -27,18 +27,17 @@ class BedProvider extends ChangeNotifier {
     _error = null;
 
     try {
-      // Fetch every hospital's beds concurrently instead of one-at-a-time,
-      // turning N sequential round-trips into a single parallel batch.
-      final entries = await Future.wait(hospitals.map((hospital) async {
-        final snapshot = await _firestoreService.getCollection(
-          'organizations/${hospital.id}/beds',
-        );
-        return MapEntry(
-          hospital.id,
-          snapshot.docs.map((doc) => BedTypeModel.fromFirestore(doc, hospital.id)).toList(),
-        );
-      }));
-      _hospitalBeds = Map.fromEntries(entries);
+      // One collectionGroup query fetches every hospital's beds in a single
+      // round-trip, instead of one request per hospital.
+      final orgIds = hospitals.map((h) => h.id).toSet();
+      final snapshot = await _firestoreService.getCollectionGroup('beds');
+      final map = {for (final id in orgIds) id: <BedTypeModel>[]};
+      for (final doc in snapshot.docs) {
+        final orgId = doc.reference.parent.parent?.id;
+        if (orgId == null || !map.containsKey(orgId)) continue;
+        map[orgId]!.add(BedTypeModel.fromFirestore(doc, orgId));
+      }
+      _hospitalBeds = map;
     } catch (e) {
       _error = 'Failed to load bed data: $e';
     }

@@ -54,6 +54,16 @@ service cloud.firestore {
       }
     }
 
+    // Collection-group reads. The listing screens fetch all beds, ambulances,
+    // blood stock and tests across every org in a single collectionGroup query.
+    // Nested match rules do NOT apply to collectionGroup queries, so these
+    // grant the same public read at group scope. Writes are unaffected and stay
+    // restricted by the per-org nested rules above.
+    match /{path=**}/beds/{bedId} { allow read: if true; }
+    match /{path=**}/ambulances/{vehicleId} { allow read: if true; }
+    match /{path=**}/blood_stock/{stockId} { allow read: if true; }
+    match /{path=**}/tests/{testId} { allow read: if true; }
+
     // Booking requests
     match /booking_requests/{requestId} {
       allow create: if isAuthenticated() && isProfileComplete();
