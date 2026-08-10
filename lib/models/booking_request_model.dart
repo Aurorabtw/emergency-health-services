@@ -34,6 +34,19 @@ class BookingRequestModel {
   final String? hospitalName;
   final String? prescribingDoctor;
 
+  // Diagnostic test-specific
+  final String? testId;
+  final String? testName;
+  final int? serialNumber;
+  final String? queueDate;
+  final int? queueYear;
+  final int? queueMonth;
+  final int? queueDay;
+  final String? queueCounterId;
+  final DateTime? estimatedArrivalTime;
+  final DateTime? calledAt;
+  final DateTime? completedAt;
+
   BookingRequestModel({
     required this.id,
     required this.type,
@@ -61,6 +74,17 @@ class BookingRequestModel {
     this.unitsNeeded,
     this.hospitalName,
     this.prescribingDoctor,
+    this.testId,
+    this.testName,
+    this.serialNumber,
+    this.queueDate,
+    this.queueYear,
+    this.queueMonth,
+    this.queueDay,
+    this.queueCounterId,
+    this.estimatedArrivalTime,
+    this.calledAt,
+    this.completedAt,
   });
 
   bool get isPending => status == 'pending';
@@ -104,6 +128,18 @@ class BookingRequestModel {
       unitsNeeded: data['units_needed'],
       hospitalName: data['hospital_name'],
       prescribingDoctor: data['prescribing_doctor'],
+      testId: data['test_id'],
+      testName: data['test_name'],
+      serialNumber: data['serial_number'],
+      queueDate: data['queue_date'],
+      queueYear: data['queue_year'],
+      queueMonth: data['queue_month'],
+      queueDay: data['queue_day'],
+      queueCounterId: data['queue_counter_id'],
+      estimatedArrivalTime: (data['estimated_arrival_time'] as Timestamp?)
+          ?.toDate(),
+      calledAt: (data['called_at'] as Timestamp?)?.toDate(),
+      completedAt: (data['completed_at'] as Timestamp?)?.toDate(),
     );
   }
 
@@ -139,6 +175,24 @@ class BookingRequestModel {
       map['units_needed'] = unitsNeeded;
       map['hospital_name'] = hospitalName;
       map['prescribing_doctor'] = prescribingDoctor;
+    } else if (type == 'test') {
+      map['test_id'] = testId;
+      map['test_name'] = testName;
+      map['serial_number'] = serialNumber;
+      map['queue_date'] = queueDate;
+      map['queue_year'] = queueYear;
+      map['queue_month'] = queueMonth;
+      map['queue_day'] = queueDay;
+      map['queue_counter_id'] = queueCounterId;
+      map['estimated_arrival_time'] = estimatedArrivalTime != null
+          ? Timestamp.fromDate(estimatedArrivalTime!)
+          : null;
+      map['called_at'] = calledAt != null
+          ? Timestamp.fromDate(calledAt!)
+          : null;
+      map['completed_at'] = completedAt != null
+          ? Timestamp.fromDate(completedAt!)
+          : null;
     }
 
     return map;
@@ -171,6 +225,17 @@ class BookingRequestModel {
     int? unitsNeeded,
     String? hospitalName,
     String? prescribingDoctor,
+    String? testId,
+    String? testName,
+    int? serialNumber,
+    String? queueDate,
+    int? queueYear,
+    int? queueMonth,
+    int? queueDay,
+    String? queueCounterId,
+    DateTime? estimatedArrivalTime,
+    DateTime? calledAt,
+    DateTime? completedAt,
   }) {
     return BookingRequestModel(
       id: id ?? this.id,
@@ -200,6 +265,17 @@ class BookingRequestModel {
       unitsNeeded: unitsNeeded ?? this.unitsNeeded,
       hospitalName: hospitalName ?? this.hospitalName,
       prescribingDoctor: prescribingDoctor ?? this.prescribingDoctor,
+      testId: testId ?? this.testId,
+      testName: testName ?? this.testName,
+      serialNumber: serialNumber ?? this.serialNumber,
+      queueDate: queueDate ?? this.queueDate,
+      queueYear: queueYear ?? this.queueYear,
+      queueMonth: queueMonth ?? this.queueMonth,
+      queueDay: queueDay ?? this.queueDay,
+      queueCounterId: queueCounterId ?? this.queueCounterId,
+      estimatedArrivalTime: estimatedArrivalTime ?? this.estimatedArrivalTime,
+      calledAt: calledAt ?? this.calledAt,
+      completedAt: completedAt ?? this.completedAt,
     );
   }
 }

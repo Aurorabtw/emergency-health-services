@@ -27,9 +27,13 @@ class _OrgAdminDashboardState extends State<OrgAdminDashboard> {
   String? _loadedOrgId;
   String? _loadedRole;
   StreamSubscription<List<BookingRequestModel>>? _bookingSubscription;
+  StreamSubscription<List<BookingRequestModel>>? _diagnosticSubscription;
   List<BookingRequestModel> _liveBookings = [];
+  List<BookingRequestModel> _diagnosticBookings = [];
   bool _bookingsLoading = false;
+  bool _diagnosticLoading = false;
   String? _bookingsError;
+  String? _diagnosticError;
 
   @override
   void didChangeDependencies() {
@@ -69,14 +73,19 @@ class _OrgAdminDashboardState extends State<OrgAdminDashboard> {
       }
     } else {
       await _bookingSubscription?.cancel();
+      await _diagnosticSubscription?.cancel();
       _bookingSubscription = null;
+      _diagnosticSubscription = null;
       if (mounted) {
         setState(() {
           _org = null;
           _isLoading = false;
           _liveBookings = [];
+          _diagnosticBookings = [];
           _bookingsLoading = false;
+          _diagnosticLoading = false;
           _bookingsError = null;
+          _diagnosticError = null;
         });
       }
     }
@@ -92,33 +101,63 @@ class _OrgAdminDashboardState extends State<OrgAdminDashboard> {
         ? 'ambulance'
         : null;
     await _bookingSubscription?.cancel();
+    await _diagnosticSubscription?.cancel();
     _bookingSubscription = null;
+    _diagnosticSubscription = null;
     if (!mounted) return;
 
     setState(() {
       _liveBookings = [];
+      _diagnosticBookings = [];
       _bookingsError = null;
+      _diagnosticError = null;
       _bookingsLoading = requestType != null;
+      _diagnosticLoading = auth.isTestAdmin;
     });
 
     if (requestType != null) {
-      _bookingSubscription = context
+      final bookingProvider = context.read<BookingProvider>();
+      final bookingStream = bookingProvider.watchOrganizationBookings(
+        org.id,
+        type: requestType,
+      );
+      _bookingSubscription = bookingStream.listen(
+        (bookings) {
+          if (!mounted) return;
+          setState(() {
+            _liveBookings = bookings;
+            _bookingsLoading = false;
+            _bookingsError = null;
+          });
+        },
+        onError: (Object error) {
+          if (!mounted) return;
+          setState(() {
+            _bookingsLoading = false;
+            _bookingsError = error.toString();
+          });
+        },
+      );
+    }
+
+    if (auth.isTestAdmin) {
+      _diagnosticSubscription = context
           .read<BookingProvider>()
-          .watchOrganizationBookings(org.id, type: requestType)
+          .watchDiagnosticQueue(org.id)
           .listen(
             (bookings) {
               if (!mounted) return;
               setState(() {
-                _liveBookings = bookings;
-                _bookingsLoading = false;
-                _bookingsError = null;
+                _diagnosticBookings = bookings;
+                _diagnosticLoading = false;
+                _diagnosticError = null;
               });
             },
             onError: (Object error) {
               if (!mounted) return;
               setState(() {
-                _bookingsLoading = false;
-                _bookingsError = error.toString();
+                _diagnosticLoading = false;
+                _diagnosticError = error.toString();
               });
             },
           );
@@ -161,17 +200,37 @@ class _OrgAdminDashboardState extends State<OrgAdminDashboard> {
 
     final handlesBookings =
         auth.isBedAdmin || auth.isBloodBankAdmin || auth.isAmbulanceAdmin;
+    final handlesDiagnosticQueue = auth.isTestAdmin;
+    const requestRoute = '/admin/requests';
     final bookings = handlesBookings ? _liveBookings : const [];
     final pending = bookings.where((b) => b.isPending).length;
     final confirmed = bookings.where((b) => b.isConfirmed).length;
     final terminal = bookings.where((b) => b.isTerminal).length;
     final now = DateTime.now();
+    final dhakaNow = now.toUtc().add(const Duration(hours: 6));
     final today = bookings
         .where(
           (b) =>
               b.createdAt.year == now.year &&
               b.createdAt.month == now.month &&
               b.createdAt.day == now.day,
+        )
+        .length;
+    final diagnosticWaiting = _diagnosticBookings
+        .where((booking) => booking.isPending)
+        .length;
+    final diagnosticCalled = _diagnosticBookings
+        .where((booking) => booking.isConfirmed)
+        .length;
+    final diagnosticCompleted = _diagnosticBookings
+        .where((booking) => booking.isAdmitted)
+        .length;
+    final diagnosticToday = _diagnosticBookings
+        .where(
+          (booking) =>
+              booking.queueYear == dhakaNow.year &&
+              booking.queueMonth == dhakaNow.month &&
+              booking.queueDay == dhakaNow.day,
         )
         .length;
     final availableBeds = beds.fold(0, (sum, b) => sum + b.availableBeds);
@@ -196,7 +255,9 @@ class _OrgAdminDashboardState extends State<OrgAdminDashboard> {
                 _DashboardHeader(
                   org: _org!,
                   roleLabel: auth.user?.roleLabel ?? 'Organization Admin',
-                  isLoading: handlesBookings && _bookingsLoading,
+                  isLoading:
+                      (handlesBookings && _bookingsLoading) ||
+                      (handlesDiagnosticQueue && _diagnosticLoading),
                   onRefresh: () => _loadDashboardData(_org!),
                 ),
                 const SizedBox(height: 20),
@@ -210,24 +271,62 @@ class _OrgAdminDashboardState extends State<OrgAdminDashboard> {
                         value: '$pending',
                         icon: Icons.pending_actions,
                         color: Colors.orange,
+                        onTap: () => context.go(requestRoute),
                       ),
                       _StatCard(
                         title: 'Confirmed',
                         value: '$confirmed',
                         icon: Icons.verified,
-                        color: Colors.green,
+                        color: Colors.blue,
+                        onTap: () => context.go(requestRoute),
                       ),
                       _StatCard(
                         title: 'Today',
                         value: '$today',
                         icon: Icons.today,
                         color: Colors.blue,
+                        onTap: () => context.go(requestRoute),
                       ),
                       _StatCard(
                         title: 'Closed',
                         value: '$terminal',
                         icon: Icons.task_alt,
-                        color: Colors.blueGrey,
+                        color: Colors.green,
+                        onTap: () => context.go(requestRoute),
+                      ),
+                    ],
+                    if (handlesDiagnosticQueue) ...[
+                      _StatCard(
+                        title: 'Waiting',
+                        value: '$diagnosticWaiting',
+                        icon: Icons.people_alt_outlined,
+                        color: Colors.orange,
+                        onTap: () =>
+                            context.go('/admin/test-queue?status=waiting'),
+                      ),
+                      _StatCard(
+                        title: 'Called',
+                        value: '$diagnosticCalled',
+                        icon: Icons.campaign_outlined,
+                        color: Colors.blue,
+                        onTap: () =>
+                            context.go('/admin/test-queue?status=called'),
+                      ),
+                      _StatCard(
+                        title: 'Diagnostic Today',
+                        value: '$diagnosticToday',
+                        icon: Icons.today,
+                        color: Colors.purple,
+                        onTap: () =>
+                            context.go('/admin/test-queue?status=waiting'),
+                      ),
+                      _StatCard(
+                        title: 'Completed',
+                        value: '$diagnosticCompleted',
+                        icon: Icons.task_alt,
+                        color: Colors.green,
+                        onTap: () =>
+                            context.go('/admin/test-queue?status=completed'),
                       ),
                     ],
                     if (auth.isBedAdmin)
@@ -236,6 +335,7 @@ class _OrgAdminDashboardState extends State<OrgAdminDashboard> {
                         value: '$availableBeds/$totalBeds',
                         icon: Icons.bed,
                         color: Colors.indigo,
+                        onTap: () => context.go('/admin/beds'),
                       ),
                     if (auth.isTestAdmin)
                       _StatCard(
@@ -243,6 +343,7 @@ class _OrgAdminDashboardState extends State<OrgAdminDashboard> {
                         value: '${tests.length}',
                         icon: Icons.science,
                         color: Colors.purple,
+                        onTap: () => context.go('/admin/tests'),
                       ),
                     if (auth.isBloodBankAdmin)
                       _StatCard(
@@ -250,6 +351,7 @@ class _OrgAdminDashboardState extends State<OrgAdminDashboard> {
                         value: '$availableUnits/$totalUnits',
                         icon: Icons.bloodtype,
                         color: Colors.red,
+                        onTap: () => context.go('/admin/blood-stock'),
                       ),
                     if (auth.isAmbulanceAdmin)
                       _StatCard(
@@ -257,15 +359,16 @@ class _OrgAdminDashboardState extends State<OrgAdminDashboard> {
                         value: '$availableAmbulances/${ambulances.length}',
                         icon: Icons.emergency,
                         color: Colors.deepOrange,
+                        onTap: () => context.go('/admin/ambulances'),
                       ),
                   ],
                 ),
                 const SizedBox(height: 24),
                 _SectionTitle(
                   title: 'Quick Actions',
-                  subtitle: handlesBookings
+                  subtitle: handlesBookings && !handlesDiagnosticQueue
                       ? 'Update availability first, then handle incoming requests.'
-                      : 'Keep the diagnostic test catalog, pricing, and turnaround times current.',
+                      : 'Manage live diagnostic queues and keep service availability current.',
                 ),
                 const SizedBox(height: 12),
                 Wrap(
@@ -282,11 +385,13 @@ class _OrgAdminDashboardState extends State<OrgAdminDashboard> {
                       ),
                     if (auth.isTestAdmin)
                       _AdminActionCard(
-                        title: 'Manage Tests',
-                        description: 'Update test catalog and pricing',
+                        title: 'Diagnostic Queues',
+                        description:
+                            'Watch live serial counts and call patients',
                         icon: Icons.science,
-                        badge: '${tests.length} tests',
-                        onTap: () => context.go('/admin/tests'),
+                        badge: '$diagnosticWaiting waiting',
+                        onTap: () =>
+                            context.go('/admin/test-queue?status=waiting'),
                       ),
                     if (auth.isBloodBankAdmin)
                       _AdminActionCard(
@@ -322,6 +427,14 @@ class _OrgAdminDashboardState extends State<OrgAdminDashboard> {
                         : 'Unable to receive live booking updates: $_bookingsError',
                   ),
                 ],
+                if (handlesDiagnosticQueue && _diagnosticError != null) ...[
+                  const SizedBox(height: 16),
+                  _ErrorBanner(
+                    message: _diagnosticError!.contains('permission-denied')
+                        ? 'The diagnostic queue cannot be read. Confirm this account is assigned as Diagnostic Test Admin for ${_org!.name}.'
+                        : 'Unable to receive live diagnostic queue updates: $_diagnosticError',
+                  ),
+                ],
               ],
             ),
           ),
@@ -333,6 +446,7 @@ class _OrgAdminDashboardState extends State<OrgAdminDashboard> {
   @override
   void dispose() {
     _bookingSubscription?.cancel();
+    _diagnosticSubscription?.cancel();
     super.dispose();
   }
 }
@@ -484,12 +598,14 @@ class _StatCard extends StatelessWidget {
   final String value;
   final IconData icon;
   final Color color;
+  final VoidCallback onTap;
 
   const _StatCard({
     required this.title,
     required this.value,
     required this.icon,
     required this.color,
+    required this.onTap,
   });
 
   @override
@@ -497,22 +613,36 @@ class _StatCard extends StatelessWidget {
     return SizedBox(
       width: 180,
       child: Card(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(icon, color: color, size: 28),
-              const SizedBox(height: 12),
-              Text(
-                value,
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(icon, color: color, size: 28),
+                    const Spacer(),
+                    Icon(
+                      Icons.arrow_outward,
+                      size: 16,
+                      color: Colors.grey.shade400,
+                    ),
+                  ],
                 ),
-              ),
-              const SizedBox(height: 2),
-              Text(title, style: TextStyle(color: Colors.grey.shade600)),
-            ],
+                const SizedBox(height: 12),
+                Text(
+                  value,
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(title, style: TextStyle(color: Colors.grey.shade600)),
+              ],
+            ),
           ),
         ),
       ),

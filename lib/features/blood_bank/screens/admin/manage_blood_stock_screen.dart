@@ -74,9 +74,12 @@ class _ManageBloodStockScreenState extends State<ManageBloodStockScreen> {
                 ...stock.map(
                   (s) => Card(
                     margin: const EdgeInsets.only(bottom: 12),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Row(
+                    clipBehavior: Clip.antiAlias,
+                    child: InkWell(
+                      onTap: () => _showStockForm(existing: s),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Row(
                         children: [
                           Container(
                             width: 60,
@@ -112,6 +115,7 @@ class _ManageBloodStockScreenState extends State<ManageBloodStockScreen> {
                             ],
                           ),
                         ],
+                        ),
                       ),
                     ),
                   ),

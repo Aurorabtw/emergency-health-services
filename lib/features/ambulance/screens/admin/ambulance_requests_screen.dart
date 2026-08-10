@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../../../models/booking_request_model.dart';
@@ -154,84 +155,91 @@ class _AmbulanceRequestsScreenState extends State<AmbulanceRequestsScreen> {
                 ...bookingProvider.bookings.map(
                   (booking) => Card(
                     margin: const EdgeInsets.only(bottom: 12),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      booking.patientName,
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 16,
-                                      ),
-                                    ),
-                                    Text('Phone: ${booking.contactNumber}'),
-                                    Text(
-                                      'Type: ${booking.ambulanceType ?? "-"}',
-                                    ),
-                                    if (booking.pickupAddress != null)
-                                      Text('Pickup: ${booking.pickupAddress}'),
-                                    if (booking.destinationAddress != null)
+                    clipBehavior: Clip.antiAlias,
+                    child: InkWell(
+                      onTap: () => context.push('/booking/${booking.id}'),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
                                       Text(
-                                        'Destination: ${booking.destinationAddress}',
+                                        booking.patientName,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 16,
+                                        ),
                                       ),
-                                    if (booking.patientConditionNotes != null)
+                                      Text('Phone: ${booking.contactNumber}'),
                                       Text(
-                                        'Notes: ${booking.patientConditionNotes}',
+                                        'Type: ${booking.ambulanceType ?? "-"}',
                                       ),
-                                    if (booking.estimatedPrice != null)
-                                      PriceWidget(
-                                        price: booking.estimatedPrice,
-                                      ),
-                                  ],
+                                      if (booking.pickupAddress != null)
+                                        Text(
+                                          'Pickup: ${booking.pickupAddress}',
+                                        ),
+                                      if (booking.destinationAddress != null)
+                                        Text(
+                                          'Destination: ${booking.destinationAddress}',
+                                        ),
+                                      if (booking.patientConditionNotes != null)
+                                        Text(
+                                          'Notes: ${booking.patientConditionNotes}',
+                                        ),
+                                      if (booking.estimatedPrice != null)
+                                        PriceWidget(
+                                          price: booking.estimatedPrice,
+                                        ),
+                                    ],
+                                  ),
                                 ),
+                                BookingStatusChip(status: booking.status),
+                              ],
+                            ),
+                            if (booking.isPending) ...[
+                              const SizedBox(height: 12),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.end,
+                                children: [
+                                  OutlinedButton(
+                                    onPressed: () => _reject(booking),
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: Colors.red,
+                                    ),
+                                    child: const Text('Reject'),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  FilledButton(
+                                    onPressed: () => _approve(booking),
+                                    child: const Text('Confirm Trip'),
+                                  ),
+                                ],
                               ),
-                              BookingStatusChip(status: booking.status),
                             ],
-                          ),
-                          if (booking.isPending) ...[
-                            const SizedBox(height: 12),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.end,
-                              children: [
-                                OutlinedButton(
-                                  onPressed: () => _reject(booking),
-                                  style: OutlinedButton.styleFrom(
-                                    foregroundColor: Colors.red,
+                            if (booking.isConfirmed) ...[
+                              const SizedBox(height: 12),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.end,
+                                children: [
+                                  FilledButton(
+                                    onPressed: () => _complete(booking),
+                                    style: FilledButton.styleFrom(
+                                      backgroundColor: Colors.green,
+                                    ),
+                                    child: const Text('Mark as Completed'),
                                   ),
-                                  child: const Text('Reject'),
-                                ),
-                                const SizedBox(width: 8),
-                                FilledButton(
-                                  onPressed: () => _approve(booking),
-                                  child: const Text('Confirm Trip'),
-                                ),
-                              ],
-                            ),
+                                ],
+                              ),
+                            ],
                           ],
-                          if (booking.isConfirmed) ...[
-                            const SizedBox(height: 12),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.end,
-                              children: [
-                                FilledButton(
-                                  onPressed: () => _complete(booking),
-                                  style: FilledButton.styleFrom(
-                                    backgroundColor: Colors.green,
-                                  ),
-                                  child: const Text('Mark as Completed'),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ],
+                        ),
                       ),
                     ),
                   ),

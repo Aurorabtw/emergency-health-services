@@ -69,9 +69,12 @@ class _ManageFleetScreenState extends State<ManageFleetScreen> {
                 ...ambulances.map(
                   (amb) => Card(
                     margin: const EdgeInsets.only(bottom: 12),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Row(
+                    clipBehavior: Clip.antiAlias,
+                    child: InkWell(
+                      onTap: () => _showForm(existing: amb),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Row(
                         children: [
                           Container(
                             padding: const EdgeInsets.all(12),
@@ -122,6 +125,7 @@ class _ManageFleetScreenState extends State<ManageFleetScreen> {
                             },
                           ),
                         ],
+                        ),
                       ),
                     ),
                   ),

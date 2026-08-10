@@ -16,6 +16,11 @@ class AppNavBar extends StatelessWidget implements PreferredSizeWidget {
     final auth = context.watch<AuthProvider>();
     final currentPath = GoRouterState.of(context).uri.path;
     final isAdmin = auth.isOrgAdmin || auth.isSuperAdmin;
+    final rootPath = auth.isSuperAdmin
+        ? '/super-admin/dashboard'
+        : auth.isOrgAdmin
+        ? '/admin/dashboard'
+        : '/';
 
     String title = 'Emergency Healthcare';
     if (isAdmin) {
@@ -28,10 +33,22 @@ class AppNavBar extends StatelessWidget implements PreferredSizeWidget {
 
     return AppBar(
       toolbarHeight: 64,
+      automaticallyImplyLeading: false,
+      leading: currentPath == rootPath
+          ? null
+          : BackButton(
+              onPressed: () {
+                if (context.canPop()) {
+                  context.pop();
+                  return;
+                }
+                context.replace(_fallbackPath(currentPath, auth, rootPath));
+              },
+            ),
       title: MouseRegion(
         cursor: SystemMouseCursors.click,
         child: GestureDetector(
-          onTap: () => context.go(isAdmin ? '/admin/dashboard' : '/'),
+          onTap: () => context.go(rootPath),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -45,12 +62,14 @@ class AppNavBar extends StatelessWidget implements PreferredSizeWidget {
                   ),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: const Icon(Icons.local_hospital_rounded, color: Colors.white, size: 20),
+                child: const Icon(
+                  Icons.local_hospital_rounded,
+                  color: Colors.white,
+                  size: 20,
+                ),
               ),
               const SizedBox(width: 10),
-              Flexible(
-                child: Text(title, overflow: TextOverflow.ellipsis),
-              ),
+              Flexible(child: Text(title, overflow: TextOverflow.ellipsis)),
             ],
           ),
         ),
@@ -107,12 +126,18 @@ class AppNavBar extends StatelessWidget implements PreferredSizeWidget {
         const SizedBox(width: 8),
         if (auth.isAuthenticated) ...[
           IconButton(
-            icon: const Icon(Icons.person_outline_rounded, color: AppTheme.textSecondary),
+            icon: const Icon(
+              Icons.person_outline_rounded,
+              color: AppTheme.textSecondary,
+            ),
             tooltip: 'Profile',
             onPressed: () => context.go('/profile'),
           ),
           IconButton(
-            icon: const Icon(Icons.logout_rounded, color: AppTheme.textSecondary),
+            icon: const Icon(
+              Icons.logout_rounded,
+              color: AppTheme.textSecondary,
+            ),
             tooltip: 'Sign Out',
             onPressed: () => auth.signOut(),
           ),
@@ -122,7 +147,10 @@ class AppNavBar extends StatelessWidget implements PreferredSizeWidget {
             child: FilledButton(
               onPressed: () => context.go('/login'),
               style: FilledButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 10,
+                ),
               ),
               child: const Text('Sign In'),
             ),
@@ -130,6 +158,23 @@ class AppNavBar extends StatelessWidget implements PreferredSizeWidget {
         const SizedBox(width: 16),
       ],
     );
+  }
+
+  String _fallbackPath(String currentPath, AuthProvider auth, String rootPath) {
+    if (currentPath.startsWith('/beds/book/')) return '/beds';
+    if (currentPath.startsWith('/ambulance/book/')) return '/ambulance';
+    if (currentPath.startsWith('/blood/request/')) return '/blood';
+    if (currentPath.startsWith('/tests/')) return '/tests';
+    if (currentPath.startsWith('/admin/tests/') &&
+        currentPath.endsWith('/queue')) {
+      return '/admin/tests';
+    }
+    if (currentPath.startsWith('/booking/')) {
+      if (auth.isSuperAdmin) return '/super-admin/requests';
+      if (auth.isOrgAdmin) return '/admin/dashboard';
+      return '/my-bookings';
+    }
+    return rootPath;
   }
 }
 
@@ -160,8 +205,8 @@ class _NavButtonState extends State<_NavButton> {
     final color = widget.isActive
         ? AppTheme.primary
         : _hovered
-            ? AppTheme.textPrimary
-            : AppTheme.textSecondary;
+        ? AppTheme.textPrimary
+        : AppTheme.textSecondary;
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
@@ -177,8 +222,8 @@ class _NavButtonState extends State<_NavButton> {
             color: _hovered && !widget.isActive
                 ? AppTheme.background
                 : widget.isActive
-                    ? AppTheme.primary.withValues(alpha: 0.08)
-                    : Colors.transparent,
+                ? AppTheme.primary.withValues(alpha: 0.08)
+                : Colors.transparent,
             borderRadius: BorderRadius.circular(10),
           ),
           child: Row(
@@ -189,7 +234,9 @@ class _NavButtonState extends State<_NavButton> {
                 duration: AppTheme.fast,
                 style: TextStyle(
                   fontSize: 14,
-                  fontWeight: widget.isActive ? FontWeight.w700 : FontWeight.w500,
+                  fontWeight: widget.isActive
+                      ? FontWeight.w700
+                      : FontWeight.w500,
                   color: color,
                 ),
                 child: Text(widget.label),

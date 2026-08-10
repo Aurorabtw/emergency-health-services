@@ -2,8 +2,9 @@ import 'package:flutter/material.dart';
 
 class BookingStatusChip extends StatelessWidget {
   final String status;
+  final String? bookingType;
 
-  const BookingStatusChip({super.key, required this.status});
+  const BookingStatusChip({super.key, required this.status, this.bookingType});
 
   Color get _color {
     switch (status) {
@@ -40,6 +41,18 @@ class BookingStatusChip extends StatelessWidget {
   }
 
   String get _label {
+    if (bookingType == 'test') {
+      switch (status) {
+        case 'pending':
+          return 'Waiting';
+        case 'confirmed':
+          return 'Called';
+        case 'admitted':
+          return 'Completed';
+        case 'rejected':
+          return 'Cancelled';
+      }
+    }
     switch (status) {
       case 'pending':
         return 'Pending';
@@ -60,7 +73,10 @@ class BookingStatusChip extends StatelessWidget {
   Widget build(BuildContext context) {
     return Chip(
       avatar: Icon(_icon, color: _color, size: 18),
-      label: Text(_label, style: TextStyle(color: _color, fontWeight: FontWeight.w600)),
+      label: Text(
+        _label,
+        style: TextStyle(color: _color, fontWeight: FontWeight.w600),
+      ),
       backgroundColor: _color.withValues(alpha: 0.1),
       side: BorderSide(color: _color.withValues(alpha: 0.3)),
       padding: const EdgeInsets.symmetric(horizontal: 4),

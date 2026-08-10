@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../../../models/booking_request_model.dart';
@@ -17,6 +19,7 @@ class BookingDetailScreen extends StatefulWidget {
 
 class _BookingDetailScreenState extends State<BookingDetailScreen> {
   late Stream<BookingRequestModel?> _bookingStream;
+  bool _isRetaking = false;
 
   @override
   void initState() {
@@ -34,8 +37,38 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
         return 'Ambulance Booking';
       case 'blood':
         return 'Blood Request';
+      case 'test':
+        return 'Diagnostic Test Serial';
       default:
         return 'Booking';
+    }
+  }
+
+  Future<void> _retakeDiagnosticSerial(BookingRequestModel booking) async {
+    final testId = booking.testId;
+    if (testId == null) return;
+
+    setState(() => _isRetaking = true);
+    try {
+      final bookingId = await context
+          .read<BookingProvider>()
+          .createDiagnosticSerial(
+            organizationId: booking.organizationId,
+            organizationName: booking.organizationName ?? 'Hospital',
+            userId: booking.userId,
+            patientName: booking.patientName,
+            contactNumber: booking.contactNumber,
+            testId: testId,
+          );
+      if (mounted) context.go('/booking/$bookingId');
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$e')));
+      }
+    } finally {
+      if (mounted) setState(() => _isRetaking = false);
     }
   }
 
@@ -93,7 +126,10 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.end,
                             children: [
-                              BookingStatusChip(status: booking.status),
+                              BookingStatusChip(
+                                status: booking.status,
+                                bookingType: booking.type,
+                              ),
                               const SizedBox(height: 6),
                               Text(
                                 'Live updates',
@@ -108,6 +144,100 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
                         ],
                       ),
                       const Divider(height: 32),
+                      if (booking.type == 'test') ...[
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(20),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .primaryContainer
+                                .withValues(alpha: 0.65),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: Column(
+                            children: [
+                              Text(
+                                'YOUR SERIAL',
+                                style: Theme.of(context).textTheme.labelLarge
+                                    ?.copyWith(
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.primary,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                '#${booking.serialNumber ?? '-'}',
+                                style: Theme.of(context).textTheme.displaySmall
+                                    ?.copyWith(fontWeight: FontWeight.bold),
+                              ),
+                              if (booking.estimatedArrivalTime != null) ...[
+                                const SizedBox(height: 8),
+                                Text(
+                                  'Estimated arrival: ${DateFormat('EEE, d MMM yyyy • h:mm a').format(booking.estimatedArrivalTime!)}',
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                              const SizedBox(height: 6),
+                              const Text(
+                                'Please arrive about 10 minutes early. Timing is approximate and depends on queue progress.',
+                                textAlign: TextAlign.center,
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 18),
+                        if (booking.isRejected) ...[
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: Colors.orange.shade50,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.orange.shade200),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'This serial was cancelled',
+                                  style: TextStyle(fontWeight: FontWeight.bold),
+                                ),
+                                const SizedBox(height: 4),
+                                const Text(
+                                  'Take another serial to rejoin today\'s diagnostic queue.',
+                                ),
+                                const SizedBox(height: 12),
+                                FilledButton.icon(
+                                  onPressed: _isRetaking
+                                      ? null
+                                      : () => _retakeDiagnosticSerial(booking),
+                                  icon: _isRetaking
+                                      ? const SizedBox(
+                                          width: 18,
+                                          height: 18,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        )
+                                      : const Icon(Icons.refresh),
+                                  label: Text(
+                                    _isRetaking
+                                        ? 'Issuing new serial...'
+                                        : 'Take Another Serial',
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 18),
+                        ],
+                      ],
                       if (booking.organizationName != null)
                         _DetailRow(
                           label: 'Organization',
@@ -199,6 +329,17 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
                           label: 'Prescribing Doctor',
                           value: booking.prescribingDoctor ?? '-',
                         ),
+                      ],
+                      if (booking.type == 'test') ...[
+                        _DetailRow(
+                          label: 'Diagnostic Test',
+                          value: booking.testName ?? '-',
+                        ),
+                        _DetailRow(
+                          label: 'Queue Date',
+                          value: booking.queueDate ?? '-',
+                        ),
+                        _DetailRow(label: 'Receipt ID', value: booking.id),
                       ],
                       if (booking.isConfirmed && booking.heldUntil != null) ...[
                         const Divider(height: 32),

@@ -74,9 +74,12 @@ class _ManageBedsScreenState extends State<ManageBedsScreen> {
                 ...beds.map(
                   (bed) => Card(
                     margin: const EdgeInsets.only(bottom: 12),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Row(
+                    clipBehavior: Clip.antiAlias,
+                    child: InkWell(
+                      onTap: () => _showBedForm(existing: bed),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Row(
                         children: [
                           Expanded(
                             child: Column(
@@ -129,6 +132,7 @@ class _ManageBedsScreenState extends State<ManageBedsScreen> {
                             ],
                           ),
                         ],
+                        ),
                       ),
                     ),
                   ),

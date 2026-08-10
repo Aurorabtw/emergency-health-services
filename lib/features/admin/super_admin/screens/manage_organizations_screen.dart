@@ -62,6 +62,20 @@ class _ManageOrganizationsScreenState extends State<ManageOrganizationsScreen> {
     );
   }
 
+  void _showEditDialog(OrganizationModel org) {
+    showDialog(
+      context: context,
+      builder: (_) => _OrganizationFormDialog(
+        organization: org,
+        onSave: (updatedOrg) async {
+          await context.read<OrganizationProvider>().updateOrganization(
+            updatedOrg,
+          );
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final orgProvider = context.watch<OrganizationProvider>();
@@ -161,6 +175,7 @@ class _ManageOrganizationsScreenState extends State<ManageOrganizationsScreen> {
                   (org) => Card(
                     margin: const EdgeInsets.only(bottom: 8),
                     child: ListTile(
+                      onTap: () => _showEditDialog(org),
                       leading: CircleAvatar(
                         backgroundColor: org.verified
                             ? Colors.green.shade50
@@ -272,9 +287,10 @@ class _OrganizationFilterChip extends StatelessWidget {
 }
 
 class _OrganizationFormDialog extends StatefulWidget {
+  final OrganizationModel? organization;
   final Future<void> Function(OrganizationModel) onSave;
 
-  const _OrganizationFormDialog({required this.onSave});
+  const _OrganizationFormDialog({this.organization, required this.onSave});
 
   @override
   State<_OrganizationFormDialog> createState() =>
@@ -291,6 +307,21 @@ class _OrganizationFormDialogState extends State<_OrganizationFormDialog> {
   final _lngController = TextEditingController();
   String _type = 'hospital';
   bool _isLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final organization = widget.organization;
+    if (organization == null) return;
+
+    _nameController.text = organization.name;
+    _addressController.text = organization.address;
+    _phoneController.text = organization.phone;
+    _emailController.text = organization.email ?? '';
+    _latController.text = organization.latitude.toString();
+    _lngController.text = organization.longitude.toString();
+    _type = organization.type;
+  }
 
   @override
   void dispose() {
@@ -310,7 +341,7 @@ class _OrganizationFormDialogState extends State<_OrganizationFormDialog> {
 
     try {
       final org = OrganizationModel(
-        id: '',
+        id: widget.organization?.id ?? '',
         type: _type,
         name: _nameController.text.trim(),
         address: _addressController.text.trim(),
@@ -320,8 +351,8 @@ class _OrganizationFormDialogState extends State<_OrganizationFormDialog> {
         email: _emailController.text.trim().isEmpty
             ? null
             : _emailController.text.trim(),
-        verified: true,
-        createdAt: DateTime.now(),
+        verified: widget.organization?.verified ?? true,
+        createdAt: widget.organization?.createdAt ?? DateTime.now(),
         updatedAt: DateTime.now(),
       );
 
@@ -341,7 +372,9 @@ class _OrganizationFormDialogState extends State<_OrganizationFormDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Add Organization'),
+      title: Text(
+        widget.organization == null ? 'Add Organization' : 'Edit Organization',
+      ),
       content: SizedBox(
         width: 500,
         child: Form(
@@ -444,7 +477,7 @@ class _OrganizationFormDialogState extends State<_OrganizationFormDialog> {
                   height: 20,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
-              : const Text('Add'),
+              : Text(widget.organization == null ? 'Add' : 'Save'),
         ),
       ],
     );

@@ -116,6 +116,14 @@ class _SuperAdminDashboardState extends State<SuperAdminDashboard> {
                 icon: Icons.list_alt,
                 onTap: () => context.go('/super-admin/requests'),
               ),
+              const SizedBox(height: 16),
+              _ActionCard(
+                title: 'Diagnostic Tests',
+                description:
+                    'View test availability and daily capacity across every hospital',
+                icon: Icons.science,
+                onTap: () => context.go('/super-admin/diagnostic-tests'),
+              ),
               if (orgProvider.organizations.isEmpty &&
                   !orgProvider.isLoading) ...[
                 const SizedBox(height: 32),

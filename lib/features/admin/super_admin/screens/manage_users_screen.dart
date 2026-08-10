@@ -581,6 +581,7 @@ class _UsersTable extends StatelessWidget {
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: DataTable(
+          showCheckboxColumn: false,
           horizontalMargin: 16,
           columnSpacing: 18,
           headingRowColor: WidgetStatePropertyAll(
@@ -606,6 +607,7 @@ class _UsersTable extends StatelessWidget {
               organizationTypes[user.organizationId],
             );
             return DataRow(
+              onSelectChanged: isCurrentUser ? null : (_) => onEdit(user),
               cells: [
                 DataCell(
                   Row(
@@ -727,73 +729,77 @@ class _MobileUserCard extends StatelessWidget {
     final hasValidAssignment = _hasValidAssignment(user, organizationType);
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                _UserAvatar(user: user),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        user.name?.trim().isNotEmpty == true
-                            ? user.name!
-                            : 'Unnamed user',
-                        style: const TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                      Text(
-                        user.email,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: Colors.grey.shade600),
-                      ),
-                    ],
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: isCurrentUser ? null : onEdit,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  _UserAvatar(user: user),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          user.name?.trim().isNotEmpty == true
+                              ? user.name!
+                              : 'Unnamed user',
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        Text(
+                          user.email,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(color: Colors.grey.shade600),
+                        ),
+                      ],
+                    ),
+                  ),
+                  _UserActions(
+                    isCurrentUser: isCurrentUser,
+                    onEdit: onEdit,
+                    onDelete: onDelete,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _RoleBadge(label: user.roleLabel, color: roleColor),
+                  _ProfileBadge(isComplete: user.profileComplete),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Assigned Hospital / Organization',
+                style: Theme.of(
+                  context,
+                ).textTheme.labelMedium?.copyWith(color: Colors.grey.shade600),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                organizationName ?? 'Not assigned',
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+              if (!hasValidAssignment) ...[
+                const SizedBox(height: 6),
+                Text(
+                  'Invalid assignment - edit this user to select a compatible organization.',
+                  style: TextStyle(
+                    color: Colors.orange.shade800,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
-                _UserActions(
-                  isCurrentUser: isCurrentUser,
-                  onEdit: onEdit,
-                  onDelete: onDelete,
-                ),
               ],
-            ),
-            const SizedBox(height: 14),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _RoleBadge(label: user.roleLabel, color: roleColor),
-                _ProfileBadge(isComplete: user.profileComplete),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'Assigned Hospital / Organization',
-              style: Theme.of(
-                context,
-              ).textTheme.labelMedium?.copyWith(color: Colors.grey.shade600),
-            ),
-            const SizedBox(height: 3),
-            Text(
-              organizationName ?? 'Not assigned',
-              style: const TextStyle(fontWeight: FontWeight.w600),
-            ),
-            if (!hasValidAssignment) ...[
-              const SizedBox(height: 6),
-              Text(
-                'Invalid assignment - edit this user to select a compatible organization.',
-                style: TextStyle(
-                  color: Colors.orange.shade800,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
             ],
-          ],
+          ),
         ),
       ),
     );

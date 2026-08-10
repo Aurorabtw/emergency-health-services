@@ -39,11 +39,175 @@ service cloud.firestore {
     function canManageBooking(orgId, type) {
       return (type == 'bed' && isBedAdmin(orgId))
         || (type == 'blood' && isBloodBankAdmin(orgId))
-        || (type == 'ambulance' && isAmbulanceAdmin(orgId));
+        || (type == 'ambulance' && isAmbulanceAdmin(orgId))
+        || (type == 'test' && isTestAdmin(orgId));
     }
 
     function isProfileComplete() {
       return isAuthenticated() && getUserData().profile_complete == true;
+    }
+
+    function isCurrentQueueDay(data) {
+      let dhakaTime = request.time + duration.value(6, 'h');
+      return data.queue_year == dhakaTime.year()
+        && data.queue_month == dhakaTime.month()
+        && data.queue_day == dhakaTime.day();
+    }
+
+    function queueSlotMinutes(orgId, testId) {
+      let test = get(/databases/$(database)/documents/organizations/$(orgId)/tests/$(testId)).data;
+      return test.keys().hasAny(['slot_duration_minutes'])
+        ? test.slot_duration_minutes
+        : 15;
+    }
+
+    function testDailyCapacity(orgId, testId) {
+      let test = get(/databases/$(database)/documents/organizations/$(orgId)/tests/$(testId)).data;
+      return test.keys().hasAny(['daily_capacity']) ? test.daily_capacity : 100;
+    }
+
+    function testAcceptingSerials(orgId, testId) {
+      let test = get(/databases/$(database)/documents/organizations/$(orgId)/tests/$(testId)).data;
+      return test.keys().hasAny(['is_available']) ? test.is_available == true : true;
+    }
+
+    function isValidCatalogOffering() {
+      return request.resource.data.catalog_test_id is string
+        && exists(/databases/$(database)/documents/diagnostic_test_catalog/$(request.resource.data.catalog_test_id))
+        && get(/databases/$(database)/documents/diagnostic_test_catalog/$(request.resource.data.catalog_test_id)).data.active == true
+        && request.resource.data.test_name == get(/databases/$(database)/documents/diagnostic_test_catalog/$(request.resource.data.catalog_test_id)).data.name;
+    }
+
+    function isValidTestBookingCreate(requestId) {
+      let counter = getAfter(/databases/$(database)/documents/organizations/$(request.resource.data.organization_id)/test_queue_counters/$(request.resource.data.queue_counter_id)).data;
+      let test = get(/databases/$(database)/documents/organizations/$(request.resource.data.organization_id)/tests/$(request.resource.data.test_id)).data;
+      let dailyId = string(request.resource.data.queue_year) + '_'
+        + string(request.resource.data.queue_month) + '_'
+        + string(request.resource.data.queue_day) + '_'
+        + request.resource.data.test_id;
+      let daily = getAfter(/databases/$(database)/documents/organizations/$(request.resource.data.organization_id)/test_daily_capacity/$(dailyId)).data;
+      return request.resource.data.test_id is string
+        && request.resource.data.test_name is string
+        && request.resource.data.test_name == test.test_name
+        && request.resource.data.estimated_price == test.price
+        && request.resource.data.organization_id is string
+        && request.resource.data.organization_name is string
+        && request.resource.data.patient_name is string
+        && request.resource.data.contact_number is string
+        && request.resource.data.created_at is timestamp
+        && request.resource.data.called_at == null
+        && request.resource.data.completed_at == null
+        && request.resource.data.serial_number is int
+        && request.resource.data.serial_number > 0
+        && request.resource.data.queue_date is string
+        && request.resource.data.queue_year is int
+        && request.resource.data.queue_month is int
+        && request.resource.data.queue_day is int
+        && isCurrentQueueDay(request.resource.data)
+        && request.resource.data.queue_counter_id is string
+        && request.resource.data.queue_counter_id == request.resource.data.test_id
+        && request.resource.data.estimated_arrival_time is timestamp
+        && exists(/databases/$(database)/documents/organizations/$(request.resource.data.organization_id)/tests/$(request.resource.data.test_id))
+        && testAcceptingSerials(request.resource.data.organization_id, request.resource.data.test_id)
+        && counter.test_id == request.resource.data.test_id
+        && counter.last_serial == request.resource.data.serial_number
+        && counter.last_estimated_arrival == request.resource.data.estimated_arrival_time
+        && counter.last_request_id == requestId
+        && daily.test_id == request.resource.data.test_id
+        && daily.queue_year == request.resource.data.queue_year
+        && daily.queue_month == request.resource.data.queue_month
+        && daily.queue_day == request.resource.data.queue_day
+        && daily.capacity == testDailyCapacity(request.resource.data.organization_id, request.resource.data.test_id)
+        && daily.used is int
+        && daily.used > 0
+        && daily.remaining == daily.capacity - daily.used
+        && daily.remaining >= 0
+        && daily.last_request_id == requestId;
+    }
+
+    function isValidTestBookingUpdate(requestId) {
+      let counter = getAfter(/databases/$(database)/documents/organizations/$(resource.data.organization_id)/test_queue_counters/$(resource.data.queue_counter_id)).data;
+      return resource.data.type != 'test' || (
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'called_at', 'completed_at'])
+        && (
+          (resource.data.status == 'pending'
+            && request.resource.data.status == 'confirmed'
+            && request.resource.data.called_at == request.time
+            && counter.active_request_id == requestId
+            && counter.last_called_serial == resource.data.serial_number
+            && counter.last_queue_action_id == requestId)
+          || (resource.data.status == 'confirmed'
+            && request.resource.data.status == 'admitted'
+            && request.resource.data.completed_at == request.time
+            && counter.active_request_id == null
+            && counter.last_called_serial == resource.data.serial_number
+            && counter.last_queue_action_id == requestId)
+          || (resource.data.status == 'pending'
+            && request.resource.data.status == 'rejected'
+            && counter.active_request_id == null
+            && counter.last_called_serial == resource.data.serial_number
+            && counter.last_queue_action_id == requestId)
+          || (resource.data.status == 'confirmed'
+            && request.resource.data.status == 'rejected'
+            && counter.active_request_id == null
+            && counter.last_called_serial == resource.data.serial_number
+            && counter.last_queue_action_id == requestId)
+        )
+      );
+    }
+
+    function queueCounterMatchesBooking(orgId, counterId) {
+      let booking = getAfter(/databases/$(database)/documents/booking_requests/$(request.resource.data.last_request_id)).data;
+      return booking.type == 'test'
+        && booking.user_id == request.auth.uid
+        && booking.organization_id == orgId
+        && booking.test_id == request.resource.data.test_id
+        && booking.queue_counter_id == counterId
+        && counterId == request.resource.data.test_id
+        && booking.serial_number == request.resource.data.last_serial
+        && booking.estimated_arrival_time == request.resource.data.last_estimated_arrival
+        && booking.status == 'pending';
+    }
+
+    function dailyCapacityMatchesBooking(orgId, dailyId) {
+      let booking = getAfter(/databases/$(database)/documents/booking_requests/$(request.resource.data.last_request_id)).data;
+      return booking.type == 'test'
+        && booking.user_id == request.auth.uid
+        && booking.organization_id == orgId
+        && booking.test_id == request.resource.data.test_id
+        && booking.queue_year == request.resource.data.queue_year
+        && booking.queue_month == request.resource.data.queue_month
+        && booking.queue_day == request.resource.data.queue_day
+        && dailyId == string(request.resource.data.queue_year) + '_'
+          + string(request.resource.data.queue_month) + '_'
+          + string(request.resource.data.queue_day) + '_'
+          + request.resource.data.test_id
+        && booking.status == 'pending';
+    }
+
+    function validAdminCounterUpdate(orgId, counterId) {
+      let action = getAfter(/databases/$(database)/documents/booking_requests/$(request.resource.data.last_queue_action_id)).data;
+      return request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['active_request_id', 'last_called_serial', 'last_queue_action_id'])
+        && action.type == 'test'
+        && action.organization_id == orgId
+        && action.queue_counter_id == counterId
+        && action.serial_number == request.resource.data.last_called_serial
+        && (
+          (resource.data.active_request_id == null
+            && request.resource.data.active_request_id == request.resource.data.last_queue_action_id
+            && request.resource.data.last_called_serial == resource.data.last_called_serial + 1
+            && action.status == 'confirmed')
+          || (resource.data.active_request_id == null
+            && request.resource.data.active_request_id == null
+            && request.resource.data.last_called_serial == resource.data.last_called_serial + 1
+            && action.status == 'rejected')
+          || (resource.data.active_request_id == request.resource.data.last_queue_action_id
+            && request.resource.data.active_request_id == null
+            && request.resource.data.last_called_serial == resource.data.last_called_serial
+            && action.status in ['admitted', 'rejected'])
+        );
     }
 
     // Organizations - public read, super admin write
@@ -72,7 +236,94 @@ service cloud.firestore {
       // Tests subcollection
       match /tests/{testId} {
         allow read: if true;
-        allow create, update, delete: if isTestAdmin(orgId) || isSuperAdmin();
+        allow create, update: if isSuperAdmin()
+          || (isTestAdmin(orgId) && isValidCatalogOffering());
+        allow delete: if isTestAdmin(orgId) || isSuperAdmin();
+      }
+
+      match /test_queue_counters/{counterId} {
+        allow get: if isAuthenticated();
+        allow list: if isTestAdmin(orgId) || isSuperAdmin();
+        allow create: if isProfileComplete()
+          && request.resource.data.test_id is string
+          && counterId == request.resource.data.test_id
+          && request.resource.data.last_serial == 1
+          && request.resource.data.last_called_serial == 0
+          && request.resource.data.active_request_id == null
+          && request.resource.data.last_queue_action_id == null
+          && request.resource.data.last_estimated_arrival is timestamp
+          && request.resource.data.last_estimated_arrival > request.time
+          && queueSlotMinutes(orgId, request.resource.data.test_id) is int
+          && queueSlotMinutes(orgId, request.resource.data.test_id) > 0
+          && queueSlotMinutes(orgId, request.resource.data.test_id) <= 240
+          && request.resource.data.last_estimated_arrival <= request.time + duration.value(queueSlotMinutes(orgId, request.resource.data.test_id) + 5, 'm')
+          && request.resource.data.last_request_id is string
+          && exists(/databases/$(database)/documents/organizations/$(orgId)/tests/$(request.resource.data.test_id))
+          && queueCounterMatchesBooking(orgId, counterId);
+        allow update: if isProfileComplete()
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['last_serial', 'last_estimated_arrival', 'last_request_id', 'updated_at'])
+          && request.resource.data.test_id == resource.data.test_id
+          && counterId == request.resource.data.test_id
+          && request.resource.data.last_serial == resource.data.last_serial + 1
+          && request.resource.data.last_called_serial == resource.data.last_called_serial
+          && request.resource.data.active_request_id == resource.data.active_request_id
+          && request.resource.data.last_queue_action_id == resource.data.last_queue_action_id
+          && request.resource.data.last_estimated_arrival is timestamp
+          && request.resource.data.last_estimated_arrival > resource.data.last_estimated_arrival
+          && request.resource.data.last_estimated_arrival > request.time
+          && queueSlotMinutes(orgId, request.resource.data.test_id) is int
+          && queueSlotMinutes(orgId, request.resource.data.test_id) > 0
+          && queueSlotMinutes(orgId, request.resource.data.test_id) <= 240
+          && (
+            (resource.data.last_estimated_arrival > request.time
+              && request.resource.data.last_estimated_arrival == resource.data.last_estimated_arrival + duration.value(queueSlotMinutes(orgId, request.resource.data.test_id), 'm'))
+            || (resource.data.last_estimated_arrival <= request.time
+              && request.resource.data.last_estimated_arrival <= request.time + duration.value(queueSlotMinutes(orgId, request.resource.data.test_id) + 5, 'm'))
+          )
+          && request.resource.data.last_request_id is string
+          && queueCounterMatchesBooking(orgId, counterId);
+        allow update: if (isTestAdmin(orgId) || isSuperAdmin())
+          && validAdminCounterUpdate(orgId, counterId);
+        allow delete: if isSuperAdmin();
+      }
+
+      match /test_daily_capacity/{dailyId} {
+        allow read: if true;
+        allow create: if isProfileComplete()
+          && request.resource.data.test_id is string
+          && request.resource.data.queue_year is int
+          && request.resource.data.queue_month is int
+          && request.resource.data.queue_day is int
+          && isCurrentQueueDay(request.resource.data)
+          && dailyId == string(request.resource.data.queue_year) + '_'
+            + string(request.resource.data.queue_month) + '_'
+            + string(request.resource.data.queue_day) + '_'
+            + request.resource.data.test_id
+          && testAcceptingSerials(orgId, request.resource.data.test_id)
+          && request.resource.data.capacity == testDailyCapacity(orgId, request.resource.data.test_id)
+          && request.resource.data.capacity is int
+          && request.resource.data.capacity > 0
+          && request.resource.data.used == 1
+          && request.resource.data.remaining == request.resource.data.capacity - 1
+          && request.resource.data.last_request_id is string
+          && dailyCapacityMatchesBooking(orgId, dailyId);
+        allow update: if isProfileComplete()
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['capacity', 'used', 'remaining', 'last_request_id', 'updated_at'])
+          && request.resource.data.test_id == resource.data.test_id
+          && request.resource.data.queue_year == resource.data.queue_year
+          && request.resource.data.queue_month == resource.data.queue_month
+          && request.resource.data.queue_day == resource.data.queue_day
+          && isCurrentQueueDay(request.resource.data)
+          && testAcceptingSerials(orgId, request.resource.data.test_id)
+          && request.resource.data.capacity == testDailyCapacity(orgId, request.resource.data.test_id)
+          && request.resource.data.used == resource.data.used + 1
+          && request.resource.data.remaining == request.resource.data.capacity - request.resource.data.used
+          && request.resource.data.remaining >= 0
+          && request.resource.data.last_request_id is string
+          && dailyCapacityMatchesBooking(orgId, dailyId);
+        allow delete: if isSuperAdmin();
       }
     }
 
@@ -86,9 +337,20 @@ service cloud.firestore {
     match /{path=**}/blood_stock/{stockId} { allow read: if true; }
     match /{path=**}/tests/{testId} { allow read: if true; }
 
+    match /diagnostic_test_catalog/{catalogId} {
+      allow read: if true;
+      allow create, update, delete: if isSuperAdmin();
+    }
+
     // Booking requests
     match /booking_requests/{requestId} {
-      allow create: if isAuthenticated() && isProfileComplete();
+      allow create: if isAuthenticated()
+        && isProfileComplete()
+        && request.resource.data.user_id == request.auth.uid
+        && request.resource.data.type in ['bed', 'blood', 'ambulance', 'test']
+        && request.resource.data.status == 'pending'
+        && (request.resource.data.type != 'test'
+          || isValidTestBookingCreate(requestId));
 
       allow read: if isAuthenticated() && (
         resource.data.user_id == request.auth.uid
@@ -97,10 +359,12 @@ service cloud.firestore {
       );
 
       allow update: if isAuthenticated() && (
-        canManageBooking(resource.data.organization_id, resource.data.type)
-        || isSuperAdmin()
+        ((canManageBooking(resource.data.organization_id, resource.data.type)
+            || isSuperAdmin())
+          && isValidTestBookingUpdate(requestId))
         // Allow lazy expiry updates from any authenticated user reading the doc
-        || (resource.data.user_id == request.auth.uid
+        || (resource.data.type != 'test'
+            && resource.data.user_id == request.auth.uid
             && request.resource.data.status == 'expired'
             && resource.data.status == 'confirmed')
       );
@@ -137,6 +401,7 @@ service cloud.firestore {
           && request.resource.data.organization_id == resource.data.organization_id);
 
       allow delete: if isSuperAdmin();
+
     }
   }
 }

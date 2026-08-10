@@ -40,6 +40,8 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
         return Icons.emergency;
       case 'blood':
         return Icons.bloodtype;
+      case 'test':
+        return Icons.science;
       default:
         return Icons.info;
     }
@@ -53,6 +55,8 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
         return 'Ambulance Booking';
       case 'blood':
         return 'Blood Request';
+      case 'test':
+        return 'Diagnostic Test Serial';
       default:
         return 'Booking';
     }
@@ -66,6 +70,8 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
         return Colors.orange;
       case 'blood':
         return Colors.red;
+      case 'test':
+        return Colors.purple;
       default:
         return Colors.grey;
     }
@@ -181,6 +187,10 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
                               if (booking.type == 'ambulance' &&
                                   booking.ambulanceType != null)
                                 Text('Ambulance: ${booking.ambulanceType}'),
+                              if (booking.type == 'test')
+                                Text(
+                                  '${booking.testName ?? 'Diagnostic Test'} - Serial #${booking.serialNumber ?? '-'}',
+                                ),
                               Text(
                                 timeago.format(booking.createdAt),
                                 style: TextStyle(
@@ -196,7 +206,10 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
                               if (booking.estimatedPrice != null)
                                 PriceWidget(price: booking.estimatedPrice),
                               const SizedBox(width: 8),
-                              BookingStatusChip(status: booking.status),
+                              BookingStatusChip(
+                                status: booking.status,
+                                bookingType: booking.type,
+                              ),
                             ],
                           ),
                           isThreeLine: true,

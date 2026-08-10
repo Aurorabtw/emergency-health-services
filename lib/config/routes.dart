@@ -9,6 +9,7 @@ import '../shared/widgets/price_widget.dart';
 import '../features/admin/org_admin/screens/org_admin_dashboard.dart';
 import '../features/admin/super_admin/screens/manage_organizations_screen.dart';
 import '../features/admin/super_admin/screens/manage_users_screen.dart';
+import '../features/admin/super_admin/screens/all_diagnostic_tests_screen.dart';
 import '../features/admin/super_admin/screens/super_admin_dashboard.dart';
 import '../features/ambulance/screens/admin/ambulance_requests_screen.dart';
 import '../features/ambulance/screens/admin/manage_fleet_screen.dart';
@@ -28,6 +29,9 @@ import '../features/bookings/screens/my_bookings_screen.dart';
 import '../features/home/screens/home_screen.dart';
 import '../features/profile/screens/profile_screen.dart';
 import '../features/tests/screens/admin/manage_tests_screen.dart';
+import '../features/tests/screens/admin/diagnostic_queue_overview_screen.dart';
+import '../features/tests/screens/admin/test_queue_screen.dart';
+import '../features/tests/screens/test_detail_screen.dart';
 import '../features/tests/screens/test_search_screen.dart';
 import '../navigation/app_shell.dart';
 import '../providers/auth_provider.dart';
@@ -62,6 +66,12 @@ GoRouter createRouter(AuthProvider authProvider) {
       if (isLoading) return null;
 
       if (path == '/login' && isLoggedIn) {
+        final redirectPath = state.uri.queryParameters['redirect'];
+        if (redirectPath != null &&
+            redirectPath.startsWith('/') &&
+            !redirectPath.startsWith('/login')) {
+          return redirectPath;
+        }
         if (authProvider.isSuperAdmin) return '/super-admin/dashboard';
         if (authProvider.isOrgAdmin) return '/admin/dashboard';
         return '/';
@@ -83,7 +93,10 @@ GoRouter createRouter(AuthProvider authProvider) {
         if (path == '/admin/beds' && !authProvider.isBedAdmin) {
           return '/admin/dashboard';
         }
-        if (path == '/admin/tests' && !authProvider.isTestAdmin) {
+        if (path.startsWith('/admin/tests') && !authProvider.isTestAdmin) {
+          return '/admin/dashboard';
+        }
+        if (path == '/admin/test-queue' && !authProvider.isTestAdmin) {
           return '/admin/dashboard';
         }
         if (path == '/admin/blood-stock' && !authProvider.isBloodBankAdmin) {
@@ -164,6 +177,16 @@ GoRouter createRouter(AuthProvider authProvider) {
                 _fadePage(state, const TestSearchScreen()),
           ),
           GoRoute(
+            path: '/tests/:orgId/:testId',
+            pageBuilder: (_, state) => _fadePage(
+              state,
+              TestDetailScreen(
+                organizationId: state.pathParameters['orgId']!,
+                testId: state.pathParameters['testId']!,
+              ),
+            ),
+          ),
+          GoRoute(
             path: '/my-bookings',
             pageBuilder: (_, state) =>
                 _fadePage(state, const MyBookingsScreen()),
@@ -207,6 +230,22 @@ GoRouter createRouter(AuthProvider authProvider) {
                 _fadePage(state, const ManageTestsScreen()),
           ),
           GoRoute(
+            path: '/admin/test-queue',
+            pageBuilder: (_, state) => _fadePage(
+              state,
+              DiagnosticQueueOverviewScreen(
+                initialStatus: state.uri.queryParameters['status'] ?? 'waiting',
+              ),
+            ),
+          ),
+          GoRoute(
+            path: '/admin/tests/:testId/queue',
+            pageBuilder: (_, state) => _fadePage(
+              state,
+              TestQueueScreen(testId: state.pathParameters['testId']!),
+            ),
+          ),
+          GoRoute(
             path: '/admin/requests',
             pageBuilder: (_, state) =>
                 _fadePage(state, const _AdminRequestsRouter()),
@@ -246,6 +285,11 @@ GoRouter createRouter(AuthProvider authProvider) {
             pageBuilder: (_, state) =>
                 _fadePage(state, const _SuperAdminRequestsView()),
           ),
+          GoRoute(
+            path: '/super-admin/diagnostic-tests',
+            pageBuilder: (_, state) =>
+                _fadePage(state, const AllDiagnosticTestsScreen()),
+          ),
         ],
       ),
     ],
@@ -283,14 +327,14 @@ class _SuperAdminRequestsViewState extends State<_SuperAdminRequestsView>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(length: 5, vsync: this);
     _tabController.addListener(_onTabChanged);
     _loadRequests();
   }
 
   void _onTabChanged() {
     if (_tabController.indexIsChanging) return;
-    final types = [null, 'bed', 'blood', 'ambulance'];
+    final types = [null, 'bed', 'blood', 'ambulance', 'test'];
     _typeFilter = types[_tabController.index];
     _loadRequests();
   }
@@ -335,11 +379,13 @@ class _SuperAdminRequestsViewState extends State<_SuperAdminRequestsView>
               const SizedBox(height: 16),
               TabBar(
                 controller: _tabController,
+                isScrollable: true,
                 tabs: const [
                   Tab(text: 'All'),
                   Tab(icon: Icon(Icons.bed, size: 18), text: 'Beds'),
                   Tab(icon: Icon(Icons.bloodtype, size: 18), text: 'Blood'),
                   Tab(icon: Icon(Icons.emergency, size: 18), text: 'Ambulance'),
+                  Tab(icon: Icon(Icons.science, size: 18), text: 'Tests'),
                 ],
               ),
               const SizedBox(height: 16),
@@ -384,6 +430,8 @@ class _RequestCard extends StatelessWidget {
         return Icons.emergency;
       case 'blood':
         return Icons.bloodtype;
+      case 'test':
+        return Icons.science;
       default:
         return Icons.info;
     }
@@ -397,6 +445,8 @@ class _RequestCard extends StatelessWidget {
         return Colors.orange;
       case 'blood':
         return Colors.red;
+      case 'test':
+        return Colors.purple;
       default:
         return Colors.grey;
     }
@@ -410,6 +460,8 @@ class _RequestCard extends StatelessWidget {
         return 'Ambulance';
       case 'blood':
         return 'Blood';
+      case 'test':
+        return 'Diagnostic Test';
       default:
         return type;
     }
@@ -419,95 +471,109 @@ class _RequestCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: _typeColor(booking.type).withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        _typeIcon(booking.type),
-                        size: 14,
-                        color: _typeColor(booking.type),
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        _typeLabel(booking.type),
-                        style: TextStyle(
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => context.push('/booking/${booking.id}'),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: _typeColor(booking.type).withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          _typeIcon(booking.type),
+                          size: 14,
                           color: _typeColor(booking.type),
-                          fontWeight: FontWeight.w600,
-                          fontSize: 12,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          _typeLabel(booking.type),
+                          style: TextStyle(
+                            color: _typeColor(booking.type),
+                            fontWeight: FontWeight.w600,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  if (booking.organizationName != null)
+                    Expanded(
+                      child: Text(
+                        booking.organizationName!,
+                        style: TextStyle(
+                          color: Colors.grey.shade600,
+                          fontSize: 13,
                         ),
                       ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 8),
-                if (booking.organizationName != null)
-                  Expanded(
-                    child: Text(
-                      booking.organizationName!,
-                      style: TextStyle(
-                        color: Colors.grey.shade600,
-                        fontSize: 13,
-                      ),
-                    ),
-                  )
-                else
-                  const Spacer(),
-                BookingStatusChip(status: booking.status),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(
-              booking.patientName,
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-            ),
-            Text('Phone: ${booking.contactNumber}'),
-            if (booking.type == 'bed')
-              Text('Bed Type: ${booking.bedType ?? "-"}'),
-            if (booking.type == 'blood')
-              Text(
-                'Blood: ${booking.bloodType ?? "-"}  |  Units: ${booking.unitsNeeded ?? 0}',
-              ),
-            if (booking.type == 'ambulance')
-              Text('Ambulance: ${booking.ambulanceType ?? "-"}'),
-            if (booking.estimatedPrice != null)
-              PriceWidget(price: booking.estimatedPrice),
-            if (booking.isPending) ...[
-              const SizedBox(height: 12),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  OutlinedButton(
-                    onPressed: () async {
-                      await context.read<BookingProvider>().rejectBooking(
-                        booking.id,
-                      );
-                      onRefresh();
-                    },
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.red,
-                    ),
-                    child: const Text('Reject'),
+                    )
+                  else
+                    const Spacer(),
+                  BookingStatusChip(
+                    status: booking.status,
+                    bookingType: booking.type,
                   ),
                 ],
               ),
+              const SizedBox(height: 8),
+              Text(
+                booking.patientName,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+              Text('Phone: ${booking.contactNumber}'),
+              if (booking.type == 'bed')
+                Text('Bed Type: ${booking.bedType ?? "-"}'),
+              if (booking.type == 'blood')
+                Text(
+                  'Blood: ${booking.bloodType ?? "-"}  |  Units: ${booking.unitsNeeded ?? 0}',
+                ),
+              if (booking.type == 'ambulance')
+                Text('Ambulance: ${booking.ambulanceType ?? "-"}'),
+              if (booking.type == 'test')
+                Text(
+                  '${booking.testName ?? "Diagnostic Test"}  |  Serial #${booking.serialNumber ?? "-"}',
+                ),
+              if (booking.estimatedPrice != null)
+                PriceWidget(price: booking.estimatedPrice),
+              if (booking.isPending && booking.type != 'test') ...[
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    OutlinedButton(
+                      onPressed: () async {
+                        await context.read<BookingProvider>().rejectBooking(
+                          booking.id,
+                        );
+                        onRefresh();
+                      },
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.red,
+                      ),
+                      child: const Text('Reject'),
+                    ),
+                  ],
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );

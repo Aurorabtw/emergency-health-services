@@ -20,118 +20,162 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _isForgotPassword = false;
 
   void _switchToRegister() => setState(() {
-        _isRegisterMode = true;
-        _isForgotPassword = false;
-        context.read<AuthProvider>().clearError();
-      });
+    _isRegisterMode = true;
+    _isForgotPassword = false;
+    context.read<AuthProvider>().clearError();
+  });
 
   void _switchToLogin() => setState(() {
-        _isRegisterMode = false;
-        _isForgotPassword = false;
-        context.read<AuthProvider>().clearError();
-      });
+    _isRegisterMode = false;
+    _isForgotPassword = false;
+    context.read<AuthProvider>().clearError();
+  });
 
   void _switchToForgotPassword() => setState(() {
-        _isForgotPassword = true;
-        context.read<AuthProvider>().clearError();
-      });
+    _isForgotPassword = true;
+    context.read<AuthProvider>().clearError();
+  });
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [Color(0xFFEFF5FF), Color(0xFFF6F8FB), Color(0xFFEDFAF8)],
-          ),
-        ),
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 440),
-              child: FadeSlideIn(
-                child: Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(36),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        // Header
-                        Container(
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            gradient: const LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: [AppTheme.primary, AppTheme.accent],
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Color(0xFFEFF5FF),
+                  Color(0xFFF6F8FB),
+                  Color(0xFFEDFAF8),
+                ],
+              ),
+            ),
+            child: Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(24),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 440),
+                  child: FadeSlideIn(
+                    child: Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(36),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            // Header
+                            Container(
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                gradient: const LinearGradient(
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                  colors: [AppTheme.primary, AppTheme.accent],
+                                ),
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              child: const Icon(
+                                Icons.local_hospital_rounded,
+                                size: 34,
+                                color: Colors.white,
+                              ),
                             ),
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: const Icon(Icons.local_hospital_rounded, size: 34, color: Colors.white),
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          'Emergency Healthcare',
-                          style: Theme.of(context).textTheme.headlineSmall,
-                        ),
-                        const SizedBox(height: 6),
-                        AnimatedSwitcher(
-                          duration: AppTheme.normal,
-                          child: Text(
-                            _isForgotPassword
-                                ? 'Reset your password'
-                                : _isRegisterMode
+                            const SizedBox(height: 16),
+                            Text(
+                              'Emergency Healthcare',
+                              style: Theme.of(context).textTheme.headlineSmall,
+                            ),
+                            const SizedBox(height: 6),
+                            AnimatedSwitcher(
+                              duration: AppTheme.normal,
+                              child: Text(
+                                _isForgotPassword
+                                    ? 'Reset your password'
+                                    : _isRegisterMode
                                     ? 'Create a new account'
                                     : 'Sign in to book beds, ambulances, and more',
-                            key: ValueKey('$_isForgotPassword-$_isRegisterMode'),
-                            style: Theme.of(context)
-                                .textTheme
-                                .bodyMedium
-                                ?.copyWith(color: AppTheme.textSecondary),
-                            textAlign: TextAlign.center,
-                          ),
-                        ),
-                        const SizedBox(height: 28),
+                                key: ValueKey(
+                                  '$_isForgotPassword-$_isRegisterMode',
+                                ),
+                                style: Theme.of(context).textTheme.bodyMedium
+                                    ?.copyWith(color: AppTheme.textSecondary),
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                            const SizedBox(height: 28),
 
-                        // Form — animate size + cross-fade between modes
-                        AnimatedSize(
-                          duration: AppTheme.normal,
-                          curve: AppTheme.easeOut,
-                          alignment: Alignment.topCenter,
-                          child: AnimatedSwitcher(
-                            duration: AppTheme.normal,
-                            switchInCurve: Curves.easeOut,
-                            switchOutCurve: Curves.easeIn,
-                            transitionBuilder: (child, animation) =>
-                                FadeTransition(opacity: animation, child: child),
-                            child: _isForgotPassword
-                                ? _ForgotPasswordForm(key: const ValueKey('forgot'), onBack: _switchToLogin)
-                                : _isRegisterMode
-                                    ? _RegisterForm(key: const ValueKey('register'), onSwitchToLogin: _switchToLogin)
+                            // Form — animate size + cross-fade between modes
+                            AnimatedSize(
+                              duration: AppTheme.normal,
+                              curve: AppTheme.easeOut,
+                              alignment: Alignment.topCenter,
+                              child: AnimatedSwitcher(
+                                duration: AppTheme.normal,
+                                switchInCurve: Curves.easeOut,
+                                switchOutCurve: Curves.easeIn,
+                                transitionBuilder: (child, animation) =>
+                                    FadeTransition(
+                                      opacity: animation,
+                                      child: child,
+                                    ),
+                                child: _isForgotPassword
+                                    ? _ForgotPasswordForm(
+                                        key: const ValueKey('forgot'),
+                                        onBack: _switchToLogin,
+                                      )
+                                    : _isRegisterMode
+                                    ? _RegisterForm(
+                                        key: const ValueKey('register'),
+                                        onSwitchToLogin: _switchToLogin,
+                                      )
                                     : _LoginForm(
                                         key: const ValueKey('login'),
                                         onSwitchToRegister: _switchToRegister,
-                                        onForgotPassword: _switchToForgotPassword,
+                                        onForgotPassword:
+                                            _switchToForgotPassword,
                                       ),
-                          ),
-                        ),
+                              ),
+                            ),
 
-                        const SizedBox(height: 16),
-                        TextButton(
-                          onPressed: () => context.go('/'),
-                          child: const Text('Continue browsing without signing in'),
+                            const SizedBox(height: 16),
+                            TextButton(
+                              onPressed: () => context.go('/'),
+                              child: const Text(
+                                'Continue browsing without signing in',
+                              ),
+                            ),
+                          ],
                         ),
-                      ],
+                      ),
                     ),
                   ),
                 ),
               ),
             ),
           ),
-        ),
+          SafeArea(
+            child: Align(
+              alignment: Alignment.topLeft,
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: TextButton.icon(
+                  onPressed: () {
+                    if (context.canPop()) {
+                      context.pop();
+                    } else {
+                      context.replace('/');
+                    }
+                  },
+                  icon: const Icon(Icons.arrow_back_rounded),
+                  label: const Text('Back'),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -145,7 +189,11 @@ class _LoginForm extends StatefulWidget {
   final VoidCallback onSwitchToRegister;
   final VoidCallback onForgotPassword;
 
-  const _LoginForm({super.key, required this.onSwitchToRegister, required this.onForgotPassword});
+  const _LoginForm({
+    super.key,
+    required this.onSwitchToRegister,
+    required this.onForgotPassword,
+  });
 
   @override
   State<_LoginForm> createState() => _LoginFormState();
@@ -168,10 +216,7 @@ class _LoginFormState extends State<_LoginForm> {
     if (!_formKey.currentState!.validate()) return;
 
     final auth = context.read<AuthProvider>();
-    await auth.signInWithEmail(
-      _emailController.text,
-      _passwordController.text,
-    );
+    await auth.signInWithEmail(_emailController.text, _passwordController.text);
     // GoRouter's redirect handles navigation after _onAuthStateChanged fires
   }
 
@@ -210,13 +255,18 @@ class _LoginFormState extends State<_LoginForm> {
               labelText: 'Password',
               prefixIcon: const Icon(Icons.lock_outline),
               suffixIcon: IconButton(
-                icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility, size: 20),
-                onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                icon: Icon(
+                  _obscurePassword ? Icons.visibility_off : Icons.visibility,
+                  size: 20,
+                ),
+                onPressed: () =>
+                    setState(() => _obscurePassword = !_obscurePassword),
               ),
             ),
             obscureText: _obscurePassword,
             textInputAction: TextInputAction.done,
-            validator: (v) => v == null || v.isEmpty ? 'Enter your password' : null,
+            validator: (v) =>
+                v == null || v.isEmpty ? 'Enter your password' : null,
             onFieldSubmitted: (_) => _signInWithEmail(),
           ),
 
@@ -225,8 +275,13 @@ class _LoginFormState extends State<_LoginForm> {
             alignment: Alignment.centerRight,
             child: TextButton(
               onPressed: widget.onForgotPassword,
-              style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 4)),
-              child: Text('Forgot password?', style: TextStyle(fontSize: 13, color: Colors.grey.shade600)),
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+              ),
+              child: Text(
+                'Forgot password?',
+                style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+              ),
             ),
           ),
 
@@ -244,9 +299,21 @@ class _LoginFormState extends State<_LoginForm> {
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.error_outline, size: 18, color: Colors.red.shade700),
+                    Icon(
+                      Icons.error_outline,
+                      size: 18,
+                      color: Colors.red.shade700,
+                    ),
                     const SizedBox(width: 8),
-                    Expanded(child: Text(auth.error!, style: TextStyle(fontSize: 13, color: Colors.red.shade700))),
+                    Expanded(
+                      child: Text(
+                        auth.error!,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.red.shade700,
+                        ),
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -257,9 +324,18 @@ class _LoginFormState extends State<_LoginForm> {
             width: double.infinity,
             child: FilledButton(
               onPressed: auth.isLoading ? null : _signInWithEmail,
-              style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+              ),
               child: auth.isLoading
-                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
                   : const Text('Sign In'),
             ),
           ),
@@ -271,7 +347,10 @@ class _LoginFormState extends State<_LoginForm> {
               Expanded(child: Divider(color: Colors.grey.shade300)),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Text('or', style: TextStyle(color: Colors.grey.shade500, fontSize: 13)),
+                child: Text(
+                  'or',
+                  style: TextStyle(color: Colors.grey.shade500, fontSize: 13),
+                ),
               ),
               Expanded(child: Divider(color: Colors.grey.shade300)),
             ],
@@ -285,7 +364,9 @@ class _LoginFormState extends State<_LoginForm> {
               onPressed: auth.isLoading ? null : _signInWithGoogle,
               icon: const Icon(Icons.login, size: 18),
               label: const Text('Sign in with Google'),
-              style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 14),
+              ),
             ),
           ),
           const SizedBox(height: 16),
@@ -294,10 +375,20 @@ class _LoginFormState extends State<_LoginForm> {
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Text("Don't have an account? ", style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+              Text(
+                "Don't have an account? ",
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+              ),
               GestureDetector(
                 onTap: widget.onSwitchToRegister,
-                child: Text('Register', style: TextStyle(color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.w600, fontSize: 13)),
+                child: Text(
+                  'Register',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.primary,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                  ),
+                ),
               ),
             ],
           ),
@@ -386,8 +477,12 @@ class _RegisterFormState extends State<_RegisterForm> {
               labelText: 'Password',
               prefixIcon: const Icon(Icons.lock_outline),
               suffixIcon: IconButton(
-                icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility, size: 20),
-                onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                icon: Icon(
+                  _obscurePassword ? Icons.visibility_off : Icons.visibility,
+                  size: 20,
+                ),
+                onPressed: () =>
+                    setState(() => _obscurePassword = !_obscurePassword),
               ),
               helperText: 'At least 6 characters',
             ),
@@ -406,15 +501,20 @@ class _RegisterFormState extends State<_RegisterForm> {
               labelText: 'Confirm Password',
               prefixIcon: const Icon(Icons.lock_outline),
               suffixIcon: IconButton(
-                icon: Icon(_obscureConfirm ? Icons.visibility_off : Icons.visibility, size: 20),
-                onPressed: () => setState(() => _obscureConfirm = !_obscureConfirm),
+                icon: Icon(
+                  _obscureConfirm ? Icons.visibility_off : Icons.visibility,
+                  size: 20,
+                ),
+                onPressed: () =>
+                    setState(() => _obscureConfirm = !_obscureConfirm),
               ),
             ),
             obscureText: _obscureConfirm,
             textInputAction: TextInputAction.done,
             validator: (v) {
               if (v == null || v.isEmpty) return 'Confirm your password';
-              if (v != _passwordController.text) return 'Passwords do not match';
+              if (v != _passwordController.text)
+                return 'Passwords do not match';
               return null;
             },
             onFieldSubmitted: (_) => _register(),
@@ -435,9 +535,21 @@ class _RegisterFormState extends State<_RegisterForm> {
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.error_outline, size: 18, color: Colors.red.shade700),
+                    Icon(
+                      Icons.error_outline,
+                      size: 18,
+                      color: Colors.red.shade700,
+                    ),
                     const SizedBox(width: 8),
-                    Expanded(child: Text(auth.error!, style: TextStyle(fontSize: 13, color: Colors.red.shade700))),
+                    Expanded(
+                      child: Text(
+                        auth.error!,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.red.shade700,
+                        ),
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -448,9 +560,18 @@ class _RegisterFormState extends State<_RegisterForm> {
             width: double.infinity,
             child: FilledButton(
               onPressed: auth.isLoading ? null : _register,
-              style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+              ),
               child: auth.isLoading
-                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
                   : const Text('Create Account'),
             ),
           ),
@@ -462,7 +583,10 @@ class _RegisterFormState extends State<_RegisterForm> {
               Expanded(child: Divider(color: Colors.grey.shade300)),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Text('or', style: TextStyle(color: Colors.grey.shade500, fontSize: 13)),
+                child: Text(
+                  'or',
+                  style: TextStyle(color: Colors.grey.shade500, fontSize: 13),
+                ),
               ),
               Expanded(child: Divider(color: Colors.grey.shade300)),
             ],
@@ -478,7 +602,9 @@ class _RegisterFormState extends State<_RegisterForm> {
                   : () => context.read<AuthProvider>().signInWithGoogle(),
               icon: const Icon(Icons.login, size: 18),
               label: const Text('Sign up with Google'),
-              style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 14),
+              ),
             ),
           ),
           const SizedBox(height: 16),
@@ -487,10 +613,20 @@ class _RegisterFormState extends State<_RegisterForm> {
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Text('Already have an account? ', style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+              Text(
+                'Already have an account? ',
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+              ),
               GestureDetector(
                 onTap: widget.onSwitchToLogin,
-                child: Text('Sign In', style: TextStyle(color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.w600, fontSize: 13)),
+                child: Text(
+                  'Sign In',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.primary,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                  ),
+                ),
               ),
             ],
           ),
@@ -546,7 +682,9 @@ class _ForgotPasswordFormState extends State<_ForgotPasswordForm> {
           const SizedBox(height: 16),
           Text(
             'Reset email sent!',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 8),
           Text(
@@ -559,7 +697,9 @@ class _ForgotPasswordFormState extends State<_ForgotPasswordForm> {
             width: double.infinity,
             child: FilledButton(
               onPressed: widget.onBack,
-              style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+              ),
               child: const Text('Back to Sign In'),
             ),
           ),
@@ -605,9 +745,21 @@ class _ForgotPasswordFormState extends State<_ForgotPasswordForm> {
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.error_outline, size: 18, color: Colors.red.shade700),
+                    Icon(
+                      Icons.error_outline,
+                      size: 18,
+                      color: Colors.red.shade700,
+                    ),
                     const SizedBox(width: 8),
-                    Expanded(child: Text(auth.error!, style: TextStyle(fontSize: 13, color: Colors.red.shade700))),
+                    Expanded(
+                      child: Text(
+                        auth.error!,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.red.shade700,
+                        ),
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -617,9 +769,18 @@ class _ForgotPasswordFormState extends State<_ForgotPasswordForm> {
             width: double.infinity,
             child: FilledButton(
               onPressed: auth.isLoading ? null : _sendResetEmail,
-              style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+              ),
               child: auth.isLoading
-                  ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
                   : const Text('Send Reset Link'),
             ),
           ),
