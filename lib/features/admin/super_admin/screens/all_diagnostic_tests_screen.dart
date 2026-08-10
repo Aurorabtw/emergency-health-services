@@ -30,16 +30,19 @@ class _AllDiagnosticTestsScreenState extends State<AllDiagnosticTestsScreen> {
       _error = null;
     });
     try {
-      final organizationProvider = context.read<OrganizationProvider>();
       final testProvider = context.read<TestProvider>();
-      await organizationProvider.fetchOrganizations();
-      if (!mounted) return;
-      final hospitals = organizationProvider.organizations
-          .where((organization) => organization.type == 'hospital')
-          .toList();
-      await testProvider.fetchTestsForOrganizations(hospitals);
       await testProvider.fetchCatalog();
-      await testProvider.ensureCatalogFromOfferings();
+      if (testProvider.catalog.isEmpty) {
+        if (!mounted) return;
+        final organizationProvider = context.read<OrganizationProvider>();
+        await organizationProvider.fetchOrganizations();
+        if (!mounted) return;
+        final hospitals = organizationProvider.organizations
+            .where((organization) => organization.type == 'hospital')
+            .toList();
+        await testProvider.fetchTestsForOrganizations(hospitals);
+        await testProvider.ensureCatalogFromOfferings();
+      }
     } catch (e) {
       _error = '$e';
     }

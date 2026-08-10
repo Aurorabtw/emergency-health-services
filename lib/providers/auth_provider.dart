@@ -98,7 +98,6 @@ class AuthProvider extends ChangeNotifier {
         _userModel = newUser;
       }
 
-      await _loadOrganizationName(_userModel?.organizationId);
       _listenToUserProfile(firebaseUser.uid);
     } catch (e) {
       debugPrint('Auth state change error: $e');
@@ -108,6 +107,14 @@ class AuthProvider extends ChangeNotifier {
 
     _isLoading = false;
     notifyListeners();
+    if (_userModel != null) {
+      unawaited(
+        _refreshOrganizationName(
+          firebaseUser.uid,
+          _userModel?.organizationId,
+        ),
+      );
+    }
   }
 
   void _listenToUserProfile(String uid) {
@@ -125,11 +132,9 @@ class AuthProvider extends ChangeNotifier {
             notifyListeners();
 
             if (organizationChanged || _organizationName == null) {
-              await _loadOrganizationName(updatedUser.organizationId);
-              if (_authService.currentUser?.uid == uid &&
-                  _userModel?.organizationId == updatedUser.organizationId) {
-                notifyListeners();
-              }
+              unawaited(
+                _refreshOrganizationName(uid, updatedUser.organizationId),
+              );
             }
           },
           onError: (Object error) {
@@ -138,16 +143,31 @@ class AuthProvider extends ChangeNotifier {
         );
   }
 
-  Future<void> _loadOrganizationName(String? organizationId) async {
-    _organizationName = null;
-    if (organizationId == null) return;
+  Future<void> _refreshOrganizationName(
+    String uid,
+    String? organizationId,
+  ) async {
+    String? organizationName;
+    try {
+      if (organizationId != null) {
+        final orgDoc = await _firestoreService.getDocument(
+          'organizations/$organizationId',
+        );
+        if (orgDoc.exists) {
+          final data = orgDoc.data() as Map<String, dynamic>?;
+          organizationName = data?['name'] as String?;
+        }
+      }
+    } catch (e) {
+      debugPrint('Organization name load error: $e');
+      return;
+    }
 
-    final orgDoc = await _firestoreService.getDocument(
-      'organizations/$organizationId',
-    );
-    if (orgDoc.exists) {
-      final data = orgDoc.data() as Map<String, dynamic>?;
-      _organizationName = data?['name'] as String?;
+    if (_authService.currentUser?.uid == uid &&
+        _userModel?.organizationId == organizationId &&
+        _organizationName != organizationName) {
+      _organizationName = organizationName;
+      notifyListeners();
     }
   }
 
@@ -330,8 +350,11 @@ class AuthProvider extends ChangeNotifier {
     final doc = await _firestoreService.getDocument('users/${_userModel!.uid}');
     if (doc.exists) {
       _userModel = UserModel.fromFirestore(doc);
-      await _loadOrganizationName(_userModel?.organizationId);
       notifyListeners();
+      await _refreshOrganizationName(
+        _userModel!.uid,
+        _userModel?.organizationId,
+      );
     }
   }
 

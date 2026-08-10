@@ -8,6 +8,8 @@ class OrganizationProvider extends ChangeNotifier {
 
   List<OrganizationModel> _organizations = [];
   String? _loadedType;
+  DateTime? _allOrganizationsLoadedAt;
+  Future<void>? _allOrganizationsRequest;
   bool _isLoading = false;
   String? _error;
 
@@ -19,14 +21,32 @@ class OrganizationProvider extends ChangeNotifier {
     return _organizations.where((o) => o.type == type && o.verified).toList();
   }
 
-  Future<void> fetchOrganizations() async {
-    _isLoading = true;
+  Future<void> fetchOrganizations({bool forceRefresh = false}) {
+    final loadedAt = _allOrganizationsLoadedAt;
+    if (!forceRefresh &&
+        loadedAt != null &&
+        DateTime.now().difference(loadedAt) < const Duration(minutes: 5)) {
+      return Future.value();
+    }
+    if (_allOrganizationsRequest != null) return _allOrganizationsRequest!;
+
+    final request = _fetchOrganizations();
+    _allOrganizationsRequest = request;
+    return request.whenComplete(() => _allOrganizationsRequest = null);
+  }
+
+  Future<void> _fetchOrganizations() async {
+    _isLoading = _organizations.isEmpty;
     _error = null;
     notifyListeners();
 
     try {
       final snapshot = await _firestoreService.getCollection('organizations');
-      _organizations = snapshot.docs.map((doc) => OrganizationModel.fromFirestore(doc)).toList();
+      _organizations = snapshot.docs
+          .map((doc) => OrganizationModel.fromFirestore(doc))
+          .toList();
+      _loadedType = null;
+      _allOrganizationsLoadedAt = DateTime.now();
     } catch (e) {
       _error = 'Failed to load organizations: $e';
     }
@@ -57,8 +77,11 @@ class OrganizationProvider extends ChangeNotifier {
         'organizations',
         filters: filters,
       );
-      _organizations = snapshot.docs.map((doc) => OrganizationModel.fromFirestore(doc)).toList();
+      _organizations = snapshot.docs
+          .map((doc) => OrganizationModel.fromFirestore(doc))
+          .toList();
       _loadedType = type;
+      _allOrganizationsLoadedAt = null;
     } catch (e) {
       _error = 'Failed to load organizations: $e';
     }
@@ -76,7 +99,9 @@ class OrganizationProvider extends ChangeNotifier {
           QueryFilter(field: 'type', isEqualTo: type),
         ],
       );
-      return snapshot.docs.map((doc) => OrganizationModel.fromFirestore(doc)).toList();
+      return snapshot.docs
+          .map((doc) => OrganizationModel.fromFirestore(doc))
+          .toList();
     } catch (e) {
       return [];
     }
@@ -98,8 +123,14 @@ class OrganizationProvider extends ChangeNotifier {
     try {
       final id = _firestoreService.generateId('organizations');
       final newOrg = org.copyWith(id: id);
-      await _firestoreService.setDocument('organizations/$id', newOrg.toFirestore());
+      await _firestoreService.setDocument(
+        'organizations/$id',
+        newOrg.toFirestore(),
+      );
       _organizations.add(newOrg);
+      if (_allOrganizationsLoadedAt != null) {
+        _allOrganizationsLoadedAt = DateTime.now();
+      }
       notifyListeners();
     } catch (e) {
       _error = 'Failed to create organization: $e';
@@ -110,10 +141,16 @@ class OrganizationProvider extends ChangeNotifier {
 
   Future<void> updateOrganization(OrganizationModel org) async {
     try {
-      await _firestoreService.updateDocument('organizations/${org.id}', org.toFirestore());
+      await _firestoreService.updateDocument(
+        'organizations/${org.id}',
+        org.toFirestore(),
+      );
       final index = _organizations.indexWhere((o) => o.id == org.id);
       if (index != -1) {
         _organizations[index] = org;
+        if (_allOrganizationsLoadedAt != null) {
+          _allOrganizationsLoadedAt = DateTime.now();
+        }
         notifyListeners();
       }
     } catch (e) {
@@ -127,6 +164,9 @@ class OrganizationProvider extends ChangeNotifier {
     try {
       await _firestoreService.deleteDocument('organizations/$orgId');
       _organizations.removeWhere((o) => o.id == orgId);
+      if (_allOrganizationsLoadedAt != null) {
+        _allOrganizationsLoadedAt = DateTime.now();
+      }
       notifyListeners();
     } catch (e) {
       _error = 'Failed to delete organization: $e';
