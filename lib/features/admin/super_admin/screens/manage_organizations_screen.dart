@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../../../models/organization_model.dart';
@@ -6,10 +7,13 @@ import '../../../../providers/organization_provider.dart';
 import '../../../../shared/utils/validators.dart';
 
 class ManageOrganizationsScreen extends StatefulWidget {
-  const ManageOrganizationsScreen({super.key});
+  final String? typeFilter;
+
+  const ManageOrganizationsScreen({super.key, this.typeFilter});
 
   @override
-  State<ManageOrganizationsScreen> createState() => _ManageOrganizationsScreenState();
+  State<ManageOrganizationsScreen> createState() =>
+      _ManageOrganizationsScreenState();
 }
 
 class _ManageOrganizationsScreenState extends State<ManageOrganizationsScreen> {
@@ -24,14 +28,21 @@ class _ManageOrganizationsScreenState extends State<ManageOrganizationsScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Remove Organization'),
-        content: Text('Are you sure you want to remove "${org.name}"? This action cannot be undone.'),
+        content: Text(
+          'Are you sure you want to remove "${org.name}"? This action cannot be undone.',
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () async {
               Navigator.pop(ctx);
-              await context.read<OrganizationProvider>().deleteOrganization(org.id);
+              await context.read<OrganizationProvider>().deleteOrganization(
+                org.id,
+              );
             },
             child: const Text('Remove'),
           ),
@@ -54,6 +65,17 @@ class _ManageOrganizationsScreenState extends State<ManageOrganizationsScreen> {
   @override
   Widget build(BuildContext context) {
     final orgProvider = context.watch<OrganizationProvider>();
+    final organizations = widget.typeFilter == null
+        ? orgProvider.organizations
+        : orgProvider.organizations
+              .where((org) => org.type == widget.typeFilter)
+              .toList();
+    final pageTitle = switch (widget.typeFilter) {
+      'hospital' => 'Hospitals',
+      'blood_bank' => 'Blood Banks',
+      'ambulance_operator' => 'Ambulance Operators',
+      _ => 'All Organizations',
+    };
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
@@ -65,8 +87,22 @@ class _ManageOrganizationsScreenState extends State<ManageOrganizationsScreen> {
             children: [
               Row(
                 children: [
-                  Text('Manage Organizations', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
-                  const Spacer(),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          pageTitle,
+                          style: Theme.of(context).textTheme.headlineSmall
+                              ?.copyWith(fontWeight: FontWeight.bold),
+                        ),
+                        Text(
+                          '${organizations.length} organization${organizations.length == 1 ? '' : 's'}',
+                          style: TextStyle(color: Colors.grey.shade600),
+                        ),
+                      ],
+                    ),
+                  ),
                   FilledButton.icon(
                     onPressed: _showAddDialog,
                     icon: const Icon(Icons.add),
@@ -75,31 +111,81 @@ class _ManageOrganizationsScreenState extends State<ManageOrganizationsScreen> {
                 ],
               ),
               const SizedBox(height: 16),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _OrganizationFilterChip(
+                    label: 'All',
+                    selected: widget.typeFilter == null,
+                    onSelected: () => context.go('/super-admin/organizations'),
+                  ),
+                  _OrganizationFilterChip(
+                    label: 'Hospitals',
+                    selected: widget.typeFilter == 'hospital',
+                    onSelected: () =>
+                        context.go('/super-admin/organizations?type=hospital'),
+                  ),
+                  _OrganizationFilterChip(
+                    label: 'Blood Banks',
+                    selected: widget.typeFilter == 'blood_bank',
+                    onSelected: () => context.go(
+                      '/super-admin/organizations?type=blood_bank',
+                    ),
+                  ),
+                  _OrganizationFilterChip(
+                    label: 'Ambulance Operators',
+                    selected: widget.typeFilter == 'ambulance_operator',
+                    onSelected: () => context.go(
+                      '/super-admin/organizations?type=ambulance_operator',
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
               if (orgProvider.isLoading)
                 const Center(child: CircularProgressIndicator())
-              else if (orgProvider.organizations.isEmpty)
-                const Center(child: Padding(padding: EdgeInsets.all(48), child: Text('No organizations yet')))
+              else if (organizations.isEmpty)
+                Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(48),
+                    child: Text(
+                      widget.typeFilter == null
+                          ? 'No organizations yet'
+                          : 'No $pageTitle found',
+                    ),
+                  ),
+                )
               else
-                ...orgProvider.organizations.map(
+                ...organizations.map(
                   (org) => Card(
                     margin: const EdgeInsets.only(bottom: 8),
                     child: ListTile(
                       leading: CircleAvatar(
-                        backgroundColor: org.verified ? Colors.green.shade50 : Colors.orange.shade50,
+                        backgroundColor: org.verified
+                            ? Colors.green.shade50
+                            : Colors.orange.shade50,
                         child: Icon(
                           _orgIcon(org.type),
                           color: org.verified ? Colors.green : Colors.orange,
                         ),
                       ),
-                      title: Text(org.name, style: const TextStyle(fontWeight: FontWeight.w600)),
-                      subtitle: Text('${_orgTypeLabel(org.type)} - ${org.address}'),
+                      title: Text(
+                        org.name,
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      subtitle: Text(
+                        '${_orgTypeLabel(org.type)} - ${org.address}',
+                      ),
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           if (!org.verified)
                             TextButton(
                               onPressed: () async {
-                                await context.read<OrganizationProvider>().updateOrganization(
+                                await context
+                                    .read<OrganizationProvider>()
+                                    .updateOrganization(
                                       org.copyWith(verified: true),
                                     );
                               },
@@ -107,12 +193,21 @@ class _ManageOrganizationsScreenState extends State<ManageOrganizationsScreen> {
                             ),
                           Chip(
                             label: Text(org.verified ? 'Verified' : 'Pending'),
-                            backgroundColor: org.verified ? Colors.green.shade50 : Colors.orange.shade50,
-                            side: BorderSide(color: org.verified ? Colors.green : Colors.orange),
+                            backgroundColor: org.verified
+                                ? Colors.green.shade50
+                                : Colors.orange.shade50,
+                            side: BorderSide(
+                              color: org.verified
+                                  ? Colors.green
+                                  : Colors.orange,
+                            ),
                           ),
                           const SizedBox(width: 8),
                           IconButton(
-                            icon: Icon(Icons.delete_outline, color: Colors.red.shade400),
+                            icon: Icon(
+                              Icons.delete_outline,
+                              color: Colors.red.shade400,
+                            ),
                             tooltip: 'Remove Organization',
                             onPressed: () => _confirmDeleteOrg(org),
                           ),
@@ -155,13 +250,35 @@ class _ManageOrganizationsScreenState extends State<ManageOrganizationsScreen> {
   }
 }
 
+class _OrganizationFilterChip extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onSelected;
+
+  const _OrganizationFilterChip({
+    required this.label,
+    required this.selected,
+    required this.onSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ChoiceChip(
+      label: Text(label),
+      selected: selected,
+      onSelected: (_) => onSelected(),
+    );
+  }
+}
+
 class _OrganizationFormDialog extends StatefulWidget {
   final Future<void> Function(OrganizationModel) onSave;
 
   const _OrganizationFormDialog({required this.onSave});
 
   @override
-  State<_OrganizationFormDialog> createState() => _OrganizationFormDialogState();
+  State<_OrganizationFormDialog> createState() =>
+      _OrganizationFormDialogState();
 }
 
 class _OrganizationFormDialogState extends State<_OrganizationFormDialog> {
@@ -200,7 +317,9 @@ class _OrganizationFormDialogState extends State<_OrganizationFormDialog> {
         latitude: double.tryParse(_latController.text) ?? 0,
         longitude: double.tryParse(_lngController.text) ?? 0,
         phone: _phoneController.text.trim(),
-        email: _emailController.text.trim().isEmpty ? null : _emailController.text.trim(),
+        email: _emailController.text.trim().isEmpty
+            ? null
+            : _emailController.text.trim(),
         verified: true,
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
@@ -210,7 +329,9 @@ class _OrganizationFormDialogState extends State<_OrganizationFormDialog> {
       if (mounted) Navigator.of(context).pop();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error: $e')));
       }
     }
 
@@ -230,19 +351,32 @@ class _OrganizationFormDialogState extends State<_OrganizationFormDialog> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 DropdownButtonFormField<String>(
-                  value: _type,
-                  decoration: const InputDecoration(labelText: 'Organization Type'),
+                  initialValue: _type,
+                  decoration: const InputDecoration(
+                    labelText: 'Organization Type',
+                  ),
                   items: const [
-                    DropdownMenuItem(value: 'hospital', child: Text('Hospital')),
-                    DropdownMenuItem(value: 'blood_bank', child: Text('Blood Bank')),
-                    DropdownMenuItem(value: 'ambulance_operator', child: Text('Ambulance Operator')),
+                    DropdownMenuItem(
+                      value: 'hospital',
+                      child: Text('Hospital'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'blood_bank',
+                      child: Text('Blood Bank'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'ambulance_operator',
+                      child: Text('Ambulance Operator'),
+                    ),
                   ],
                   onChanged: (v) => setState(() => _type = v!),
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: _nameController,
-                  decoration: const InputDecoration(labelText: 'Organization Name'),
+                  decoration: const InputDecoration(
+                    labelText: 'Organization Name',
+                  ),
                   validator: (v) => Validators.validateRequired(v, 'Name'),
                 ),
                 const SizedBox(height: 12),
@@ -257,18 +391,24 @@ class _OrganizationFormDialogState extends State<_OrganizationFormDialog> {
                     Expanded(
                       child: TextFormField(
                         controller: _latController,
-                        decoration: const InputDecoration(labelText: 'Latitude'),
+                        decoration: const InputDecoration(
+                          labelText: 'Latitude',
+                        ),
                         keyboardType: TextInputType.number,
-                        validator: (v) => Validators.validateRequired(v, 'Latitude'),
+                        validator: (v) =>
+                            Validators.validateRequired(v, 'Latitude'),
                       ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: TextFormField(
                         controller: _lngController,
-                        decoration: const InputDecoration(labelText: 'Longitude'),
+                        decoration: const InputDecoration(
+                          labelText: 'Longitude',
+                        ),
                         keyboardType: TextInputType.number,
-                        validator: (v) => Validators.validateRequired(v, 'Longitude'),
+                        validator: (v) =>
+                            Validators.validateRequired(v, 'Longitude'),
                       ),
                     ),
                   ],
@@ -282,7 +422,9 @@ class _OrganizationFormDialogState extends State<_OrganizationFormDialog> {
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: _emailController,
-                  decoration: const InputDecoration(labelText: 'Email (optional)'),
+                  decoration: const InputDecoration(
+                    labelText: 'Email (optional)',
+                  ),
                 ),
               ],
             ),
@@ -290,8 +432,20 @@ class _OrganizationFormDialogState extends State<_OrganizationFormDialog> {
         ),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-        FilledButton(onPressed: _isLoading ? null : _submit, child: _isLoading ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('Add')),
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _isLoading ? null : _submit,
+          child: _isLoading
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Text('Add'),
+        ),
       ],
     );
   }

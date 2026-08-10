@@ -12,7 +12,8 @@ class AmbulanceRequestsScreen extends StatefulWidget {
   const AmbulanceRequestsScreen({super.key});
 
   @override
-  State<AmbulanceRequestsScreen> createState() => _AmbulanceRequestsScreenState();
+  State<AmbulanceRequestsScreen> createState() =>
+      _AmbulanceRequestsScreenState();
 }
 
 class _AmbulanceRequestsScreenState extends State<AmbulanceRequestsScreen> {
@@ -27,42 +28,73 @@ class _AmbulanceRequestsScreenState extends State<AmbulanceRequestsScreen> {
 
   void _loadRequests() {
     if (_orgId != null) {
-      context.read<BookingProvider>().fetchOrganizationBookings(_orgId!, type: 'ambulance');
+      context.read<BookingProvider>().fetchOrganizationBookings(
+        _orgId!,
+        type: 'ambulance',
+      );
       context.read<AmbulanceProvider>().fetchAmbulancesForOrg(_orgId!);
     }
   }
 
   Future<void> _approve(BookingRequestModel booking) async {
     try {
-      final ambulances = context.read<AmbulanceProvider>().getAmbulancesForOrg(_orgId!);
-      final match = ambulances.firstWhere((a) => a.type == booking.ambulanceType);
+      final ambulances = context.read<AmbulanceProvider>().getAmbulancesForOrg(
+        _orgId!,
+      );
+      final match = ambulances
+          .where((a) => a.type == booking.ambulanceType && a.isAvailable)
+          .firstOrNull;
+      if (match == null) {
+        throw const BookingOperationException(
+          'No available ambulance of this type. Update the fleet or refresh the request.',
+        );
+      }
 
-      await context.read<BookingProvider>().confirmBooking(
-            booking.id,
-            'organizations/$_orgId/ambulances/${match.id}',
-            'held_vehicles',
-            30,
-          );
+      await context.read<BookingProvider>().confirmAmbulanceBooking(
+        bookingId: booking.id,
+        organizationId: _orgId!,
+        ambulanceId: match.id,
+      );
+      if (!mounted) return;
       _loadRequests();
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(e.toString())));
+      }
     }
   }
 
   Future<void> _complete(BookingRequestModel booking) async {
     try {
-      final ambulances = context.read<AmbulanceProvider>().getAmbulancesForOrg(_orgId!);
-      final match = ambulances.firstWhere((a) => a.type == booking.ambulanceType);
+      final ambulances = context.read<AmbulanceProvider>().getAmbulancesForOrg(
+        _orgId!,
+      );
+      final match = booking.ambulanceId != null
+          ? ambulances.where((a) => a.id == booking.ambulanceId).firstOrNull
+          : ambulances
+                .where((a) => a.type == booking.ambulanceType && !a.isAvailable)
+                .firstOrNull;
+      if (match == null) {
+        throw const BookingOperationException(
+          'The ambulance assigned to this trip could not be found.',
+        );
+      }
 
-      await context.read<BookingProvider>().admitBooking(
-            booking.id,
-            'organizations/$_orgId/ambulances/${match.id}',
-            'held_vehicles',
-            'in_transit_vehicles',
-          );
+      await context.read<BookingProvider>().completeAmbulanceBooking(
+        bookingId: booking.id,
+        organizationId: _orgId!,
+        ambulanceId: match.id,
+      );
+      if (!mounted) return;
       _loadRequests();
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(e.toString())));
+      }
     }
   }
 
@@ -85,24 +117,39 @@ class _AmbulanceRequestsScreenState extends State<AmbulanceRequestsScreen> {
             children: [
               Row(
                 children: [
-                  Text('Ambulance Requests', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+                  Text(
+                    'Ambulance Requests',
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                   const Spacer(),
                   if (bookingProvider.bookings.any((b) => b.isTerminal))
                     TextButton.icon(
                       onPressed: () async {
-                        await context.read<BookingProvider>().clearTerminalBookings();
+                        await context
+                            .read<BookingProvider>()
+                            .clearTerminalBookings();
                       },
                       icon: const Icon(Icons.cleaning_services, size: 18),
                       label: const Text('Clean'),
                     ),
-                  IconButton(icon: const Icon(Icons.refresh), onPressed: _loadRequests),
+                  IconButton(
+                    icon: const Icon(Icons.refresh),
+                    onPressed: _loadRequests,
+                  ),
                 ],
               ),
               const SizedBox(height: 16),
               if (bookingProvider.isLoading)
                 const Center(child: CircularProgressIndicator())
               else if (bookingProvider.bookings.isEmpty)
-                const Center(child: Padding(padding: EdgeInsets.all(48), child: Text('No ambulance requests')))
+                const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(48),
+                    child: Text('No ambulance requests'),
+                  ),
+                )
               else
                 ...bookingProvider.bookings.map(
                   (booking) => Card(
@@ -118,13 +165,31 @@ class _AmbulanceRequestsScreenState extends State<AmbulanceRequestsScreen> {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text(booking.patientName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                    Text(
+                                      booking.patientName,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 16,
+                                      ),
+                                    ),
                                     Text('Phone: ${booking.contactNumber}'),
-                                    Text('Type: ${booking.ambulanceType ?? "-"}'),
-                                    if (booking.pickupAddress != null) Text('Pickup: ${booking.pickupAddress}'),
-                                    if (booking.destinationAddress != null) Text('Destination: ${booking.destinationAddress}'),
-                                    if (booking.patientConditionNotes != null) Text('Notes: ${booking.patientConditionNotes}'),
-                                    if (booking.estimatedPrice != null) PriceWidget(price: booking.estimatedPrice),
+                                    Text(
+                                      'Type: ${booking.ambulanceType ?? "-"}',
+                                    ),
+                                    if (booking.pickupAddress != null)
+                                      Text('Pickup: ${booking.pickupAddress}'),
+                                    if (booking.destinationAddress != null)
+                                      Text(
+                                        'Destination: ${booking.destinationAddress}',
+                                      ),
+                                    if (booking.patientConditionNotes != null)
+                                      Text(
+                                        'Notes: ${booking.patientConditionNotes}',
+                                      ),
+                                    if (booking.estimatedPrice != null)
+                                      PriceWidget(
+                                        price: booking.estimatedPrice,
+                                      ),
                                   ],
                                 ),
                               ),
@@ -136,9 +201,18 @@ class _AmbulanceRequestsScreenState extends State<AmbulanceRequestsScreen> {
                             Row(
                               mainAxisAlignment: MainAxisAlignment.end,
                               children: [
-                                OutlinedButton(onPressed: () => _reject(booking), style: OutlinedButton.styleFrom(foregroundColor: Colors.red), child: const Text('Reject')),
+                                OutlinedButton(
+                                  onPressed: () => _reject(booking),
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: Colors.red,
+                                  ),
+                                  child: const Text('Reject'),
+                                ),
                                 const SizedBox(width: 8),
-                                FilledButton(onPressed: () => _approve(booking), child: const Text('Confirm Trip')),
+                                FilledButton(
+                                  onPressed: () => _approve(booking),
+                                  child: const Text('Confirm Trip'),
+                                ),
                               ],
                             ),
                           ],
@@ -149,7 +223,9 @@ class _AmbulanceRequestsScreenState extends State<AmbulanceRequestsScreen> {
                               children: [
                                 FilledButton(
                                   onPressed: () => _complete(booking),
-                                  style: FilledButton.styleFrom(backgroundColor: Colors.green),
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: Colors.green,
+                                  ),
                                   child: const Text('Mark as Completed'),
                                 ),
                               ],

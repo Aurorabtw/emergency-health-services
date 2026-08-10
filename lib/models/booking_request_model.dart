@@ -23,6 +23,7 @@ class BookingRequestModel {
   final double? destinationLat;
   final double? destinationLng;
   final String? ambulanceType;
+  final String? ambulanceId;
   final String? patientConditionNotes;
   final String? pickupAddress;
   final String? destinationAddress;
@@ -52,6 +53,7 @@ class BookingRequestModel {
     this.destinationLat,
     this.destinationLng,
     this.ambulanceType,
+    this.ambulanceId,
     this.patientConditionNotes,
     this.pickupAddress,
     this.destinationAddress,
@@ -94,6 +96,7 @@ class BookingRequestModel {
       destinationLat: data['destination_lat']?.toDouble(),
       destinationLng: data['destination_lng']?.toDouble(),
       ambulanceType: data['ambulance_type'],
+      ambulanceId: data['ambulance_id'],
       patientConditionNotes: data['patient_condition_notes'],
       pickupAddress: data['pickup_address'],
       destinationAddress: data['destination_address'],
@@ -127,6 +130,7 @@ class BookingRequestModel {
       map['destination_lat'] = destinationLat;
       map['destination_lng'] = destinationLng;
       map['ambulance_type'] = ambulanceType;
+      map['ambulance_id'] = ambulanceId;
       map['patient_condition_notes'] = patientConditionNotes;
       map['pickup_address'] = pickupAddress;
       map['destination_address'] = destinationAddress;
@@ -159,6 +163,7 @@ class BookingRequestModel {
     double? destinationLat,
     double? destinationLng,
     String? ambulanceType,
+    String? ambulanceId,
     String? patientConditionNotes,
     String? pickupAddress,
     String? destinationAddress,
@@ -186,7 +191,9 @@ class BookingRequestModel {
       destinationLat: destinationLat ?? this.destinationLat,
       destinationLng: destinationLng ?? this.destinationLng,
       ambulanceType: ambulanceType ?? this.ambulanceType,
-      patientConditionNotes: patientConditionNotes ?? this.patientConditionNotes,
+      ambulanceId: ambulanceId ?? this.ambulanceId,
+      patientConditionNotes:
+          patientConditionNotes ?? this.patientConditionNotes,
       pickupAddress: pickupAddress ?? this.pickupAddress,
       destinationAddress: destinationAddress ?? this.destinationAddress,
       bloodType: bloodType ?? this.bloodType,

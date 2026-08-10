@@ -17,6 +17,7 @@ class AuthProvider extends ChangeNotifier {
   bool _isLoading = true;
   String? _error;
   StreamSubscription? _authSub;
+  StreamSubscription? _userSub;
 
   UserModel? get user => _userModel;
   String? get organizationName => _organizationName;
@@ -24,6 +25,8 @@ class AuthProvider extends ChangeNotifier {
   bool get isAuthenticated => _userModel != null;
   bool get isPatient => _userModel?.isPatient ?? true;
   bool get isOrgAdmin => _userModel?.isOrgAdmin ?? false;
+  bool get isBedAdmin => _userModel?.isBedAdmin ?? false;
+  bool get isTestAdmin => _userModel?.isTestAdmin ?? false;
   bool get isHospitalAdmin => _userModel?.isHospitalAdmin ?? false;
   bool get isBloodBankAdmin => _userModel?.isBloodBankAdmin ?? false;
   bool get isAmbulanceAdmin => _userModel?.isAmbulanceAdmin ?? false;
@@ -45,20 +48,28 @@ class AuthProvider extends ChangeNotifier {
   }
 
   Future<void> _onAuthStateChanged(User? firebaseUser) async {
+    await _userSub?.cancel();
+    _userSub = null;
+
     if (firebaseUser == null) {
       _userModel = null;
+      _organizationName = null;
       _isLoading = false;
       notifyListeners();
       return;
     }
 
     try {
-      final doc = await _firestoreService.getDocument('users/${firebaseUser.uid}');
+      final doc = await _firestoreService.getDocument(
+        'users/${firebaseUser.uid}',
+      );
 
       if (doc.exists) {
         _userModel = UserModel.fromFirestore(doc);
       } else {
-        final configDoc = await _firestoreService.getDocument('config/platform');
+        final configDoc = await _firestoreService.getDocument(
+          'config/platform',
+        );
         final isFirstUser = !configDoc.exists;
 
         final role = isFirstUser ? 'super_admin' : 'patient';
@@ -67,9 +78,14 @@ class AuthProvider extends ChangeNotifier {
           email: firebaseUser.email ?? '',
           name: firebaseUser.displayName,
           role: role,
-          profileComplete: firebaseUser.displayName != null && firebaseUser.displayName!.isNotEmpty,
+          profileComplete:
+              firebaseUser.displayName != null &&
+              firebaseUser.displayName!.isNotEmpty,
         );
-        await _firestoreService.setDocument('users/${firebaseUser.uid}', newUser.toFirestore());
+        await _firestoreService.setDocument(
+          'users/${firebaseUser.uid}',
+          newUser.toFirestore(),
+        );
 
         if (isFirstUser) {
           await _firestoreService.setDocument('config/platform', {
@@ -82,14 +98,8 @@ class AuthProvider extends ChangeNotifier {
         _userModel = newUser;
       }
 
-      _organizationName = null;
-      if (_userModel?.organizationId != null) {
-        final orgDoc = await _firestoreService.getDocument('organizations/${_userModel!.organizationId}');
-        if (orgDoc.exists) {
-          final data = orgDoc.data() as Map<String, dynamic>?;
-          _organizationName = data?['name'] as String?;
-        }
-      }
+      await _loadOrganizationName(_userModel?.organizationId);
+      _listenToUserProfile(firebaseUser.uid);
     } catch (e) {
       debugPrint('Auth state change error: $e');
       _userModel = null;
@@ -98,6 +108,47 @@ class AuthProvider extends ChangeNotifier {
 
     _isLoading = false;
     notifyListeners();
+  }
+
+  void _listenToUserProfile(String uid) {
+    _userSub = _firestoreService
+        .streamDocument('users/$uid')
+        .listen(
+          (doc) async {
+            if (!doc.exists || _authService.currentUser?.uid != uid) return;
+
+            final updatedUser = UserModel.fromFirestore(doc);
+            final organizationChanged =
+                updatedUser.organizationId != _userModel?.organizationId;
+            _userModel = updatedUser;
+            _isLoading = false;
+            notifyListeners();
+
+            if (organizationChanged || _organizationName == null) {
+              await _loadOrganizationName(updatedUser.organizationId);
+              if (_authService.currentUser?.uid == uid &&
+                  _userModel?.organizationId == updatedUser.organizationId) {
+                notifyListeners();
+              }
+            }
+          },
+          onError: (Object error) {
+            debugPrint('User profile listener error: $error');
+          },
+        );
+  }
+
+  Future<void> _loadOrganizationName(String? organizationId) async {
+    _organizationName = null;
+    if (organizationId == null) return;
+
+    final orgDoc = await _firestoreService.getDocument(
+      'organizations/$organizationId',
+    );
+    if (orgDoc.exists) {
+      final data = orgDoc.data() as Map<String, dynamic>?;
+      _organizationName = data?['name'] as String?;
+    }
   }
 
   // ── Google Sign-In ──
@@ -137,7 +188,11 @@ class AuthProvider extends ChangeNotifier {
 
   // ── Email + Password ──
 
-  Future<bool> registerWithEmail(String email, String password, String name) async {
+  Future<bool> registerWithEmail(
+    String email,
+    String password,
+    String name,
+  ) async {
     try {
       _isLoading = true;
       _error = null;
@@ -151,7 +206,9 @@ class AuthProvider extends ChangeNotifier {
       // Create Firestore user doc (will be picked up by _onAuthStateChanged,
       // but we set name + profileComplete here since we have the name)
       if (credential.user != null) {
-        final configDoc = await _firestoreService.getDocument('config/platform');
+        final configDoc = await _firestoreService.getDocument(
+          'config/platform',
+        );
         final isFirstUser = !configDoc.exists;
         final role = isFirstUser ? 'super_admin' : 'patient';
 
@@ -162,7 +219,10 @@ class AuthProvider extends ChangeNotifier {
           role: role,
           profileComplete: name.trim().isNotEmpty,
         );
-        await _firestoreService.setDocument('users/${credential.user!.uid}', newUser.toFirestore());
+        await _firestoreService.setDocument(
+          'users/${credential.user!.uid}',
+          newUser.toFirestore(),
+        );
 
         if (isFirstUser) {
           await _firestoreService.setDocument('config/platform', {
@@ -245,7 +305,10 @@ class AuthProvider extends ChangeNotifier {
 
   // ── Profile ──
 
-  Future<void> updateProfile({required String name, required String phone}) async {
+  Future<void> updateProfile({
+    required String name,
+    required String phone,
+  }) async {
     if (_userModel == null) return;
 
     await _firestoreService.updateDocument('users/${_userModel!.uid}', {
@@ -267,6 +330,7 @@ class AuthProvider extends ChangeNotifier {
     final doc = await _firestoreService.getDocument('users/${_userModel!.uid}');
     if (doc.exists) {
       _userModel = UserModel.fromFirestore(doc);
+      await _loadOrganizationName(_userModel?.organizationId);
       notifyListeners();
     }
   }
@@ -309,6 +373,7 @@ class AuthProvider extends ChangeNotifier {
   @override
   void dispose() {
     _authSub?.cancel();
+    _userSub?.cancel();
     super.dispose();
   }
 }

@@ -178,7 +178,7 @@ flowchart TD
     P3["3.0\nSubmit Bed\nBooking"]
     P4["4.0\nManage Bed\nRequests"]
 
-    OA["🏥 Hospital Admin"]
+    OA["🛏️ Bed Admin"]
 
     P -->|"Email/password or\nGoogle credentials"| P1
     P1 -->|"Auth token"| D3
@@ -390,7 +390,7 @@ erDiagram
         string email
         string name
         string phone
-        string role "patient | hospital_admin | blood_bank_admin | ambulance_admin | super_admin"
+        string role "patient | bed_admin | test_admin | blood_bank_admin | ambulance_admin | super_admin"
         string organization_id FK "nullable"
         boolean profile_complete
     }
@@ -666,7 +666,8 @@ graph TB
 flowchart LR
     subgraph Roles
         PAT["👤 Patient"]
-        HA["🏥 Hospital Admin"]
+        BA["🛏️ Bed Admin"]
+        TA["🧪 Diagnostic Test Admin"]
         BBA["🩸 Blood Bank Admin"]
         AA["🚑 Ambulance Admin"]
         SA["👑 Super Admin"]
@@ -691,9 +692,9 @@ flowchart LR
     PAT -->|"read own bookings"| BReq
     PAT -->|"read and update own"| UsersCol
 
-    HA -->|"read and write"| Beds
-    HA -->|"read and write"| Tests
-    HA -->|"read and update own org"| BReq
+    BA -->|"read and write"| Beds
+    BA -->|"read and update bed requests"| BReq
+    TA -->|"read and write"| Tests
 
     BBA -->|"read and write"| Blood
     BBA -->|"read and update own org"| BReq
@@ -710,7 +711,8 @@ flowchart LR
     SA -->|"read and update ALL"| UsersCol
 
     style PAT fill:#e8f5e9,stroke:#2e7d32,color:#000
-    style HA fill:#e3f2fd,stroke:#1565c0,color:#000
+    style BA fill:#e3f2fd,stroke:#1565c0,color:#000
+    style TA fill:#ede7f6,stroke:#6a1b9a,color:#000
     style BBA fill:#fce4ec,stroke:#c62828,color:#000
     style AA fill:#fff3e0,stroke:#e65100,color:#000
     style SA fill:#f3e5f5,stroke:#6a1b9a,color:#000

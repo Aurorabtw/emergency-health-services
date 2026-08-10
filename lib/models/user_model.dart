@@ -20,11 +20,24 @@ class UserModel {
   });
 
   bool get isPatient => role == 'patient';
+  bool get isBedAdmin => role == 'bed_admin' || role == 'hospital_admin';
+  bool get isTestAdmin => role == 'test_admin' || role == 'hospital_admin';
   bool get isHospitalAdmin => role == 'hospital_admin';
   bool get isBloodBankAdmin => role == 'blood_bank_admin';
   bool get isAmbulanceAdmin => role == 'ambulance_admin';
-  bool get isOrgAdmin => isHospitalAdmin || isBloodBankAdmin || isAmbulanceAdmin;
+  bool get isOrgAdmin =>
+      isBedAdmin || isTestAdmin || isBloodBankAdmin || isAmbulanceAdmin;
   bool get isSuperAdmin => role == 'super_admin';
+
+  String get roleLabel => switch (role) {
+    'bed_admin' => 'Bed Admin',
+    'test_admin' => 'Diagnostic Test Admin',
+    'hospital_admin' => 'Hospital Admin (Legacy)',
+    'blood_bank_admin' => 'Blood Bank Admin',
+    'ambulance_admin' => 'Ambulance Admin',
+    'super_admin' => 'Super Admin',
+    _ => 'Patient',
+  };
 
   factory UserModel.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;

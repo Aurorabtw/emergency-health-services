@@ -16,126 +16,207 @@ class BookingDetailScreen extends StatefulWidget {
 }
 
 class _BookingDetailScreenState extends State<BookingDetailScreen> {
-  BookingRequestModel? _booking;
-  bool _isLoading = true;
+  late Stream<BookingRequestModel?> _bookingStream;
 
   @override
   void initState() {
     super.initState();
-    _loadBooking();
+    _bookingStream = context.read<BookingProvider>().watchBooking(
+      widget.bookingId,
+    );
   }
 
   String _typeLabel(String type) {
     switch (type) {
-      case 'bed': return 'Bed Booking';
-      case 'ambulance': return 'Ambulance Booking';
-      case 'blood': return 'Blood Request';
-      default: return 'Booking';
+      case 'bed':
+        return 'Bed Booking';
+      case 'ambulance':
+        return 'Ambulance Booking';
+      case 'blood':
+        return 'Blood Request';
+      default:
+        return 'Booking';
     }
   }
 
-  Future<void> _loadBooking() async {
-    final booking = await context.read<BookingProvider>().getBooking(widget.bookingId);
-    if (mounted) {
-      setState(() {
-        _booking = booking;
-        _isLoading = false;
-      });
+  @override
+  void didUpdateWidget(covariant BookingDetailScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.bookingId != widget.bookingId) {
+      _bookingStream = context.read<BookingProvider>().watchBooking(
+        widget.bookingId,
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
+    return StreamBuilder<BookingRequestModel?>(
+      stream: _bookingStream,
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Center(
+            child: Text(
+              'Unable to load live booking updates: ${snapshot.error}',
+            ),
+          );
+        }
+        if (!snapshot.hasData &&
+            snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final booking = snapshot.data;
+        if (booking == null) {
+          return const Center(child: Text('Booking not found'));
+        }
 
-    if (_booking == null) {
-      return const Center(child: Text('Booking not found'));
-    }
-
-    final booking = _booking!;
-
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 600),
-          child: Card(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
+        return SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 600),
+              child: Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Expanded(
-                        child: Text(
-                          '${_typeLabel(booking.type)} Details',
-                          style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
-                        ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              '${_typeLabel(booking.type)} Details',
+                              style: Theme.of(context).textTheme.headlineSmall
+                                  ?.copyWith(fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              BookingStatusChip(status: booking.status),
+                              const SizedBox(height: 6),
+                              Text(
+                                'Live updates',
+                                style: TextStyle(
+                                  color: Colors.green.shade700,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
-                      BookingStatusChip(status: booking.status),
-                    ],
-                  ),
-                  const Divider(height: 32),
-                  if (booking.organizationName != null)
-                    _DetailRow(label: 'Organization', value: booking.organizationName!),
-                  _DetailRow(label: 'Patient Name', value: booking.patientName),
-                  _DetailRow(label: 'Contact', value: booking.contactNumber),
-                  if (booking.estimatedPrice != null)
-                    _DetailRowWidget(
-                      label: 'Estimated Price',
-                      child: PriceWidget(price: booking.estimatedPrice, prominent: true),
-                    ),
-                  if (booking.type == 'bed') ...[
-                    _DetailRow(label: 'Bed Type', value: booking.bedType ?? '-'),
-                    if (booking.prescriptionImageUrl != null) ...[
-                      const SizedBox(height: 12),
-                      const Text('Prescription', style: TextStyle(fontWeight: FontWeight.w500)),
-                      const SizedBox(height: 8),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: Image.network(
-                          booking.prescriptionImageUrl!,
-                          height: 200,
-                          fit: BoxFit.contain,
-                          errorBuilder: (_, __, ___) => Container(
-                            height: 100,
-                            decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(8)),
-                            child: const Center(child: Text('Image unavailable')),
+                      const Divider(height: 32),
+                      if (booking.organizationName != null)
+                        _DetailRow(
+                          label: 'Organization',
+                          value: booking.organizationName!,
+                        ),
+                      _DetailRow(
+                        label: 'Patient Name',
+                        value: booking.patientName,
+                      ),
+                      _DetailRow(
+                        label: 'Contact',
+                        value: booking.contactNumber,
+                      ),
+                      if (booking.estimatedPrice != null)
+                        _DetailRowWidget(
+                          label: 'Estimated Price',
+                          child: PriceWidget(
+                            price: booking.estimatedPrice,
+                            prominent: true,
                           ),
                         ),
+                      if (booking.type == 'bed') ...[
+                        _DetailRow(
+                          label: 'Bed Type',
+                          value: booking.bedType ?? '-',
+                        ),
+                        if (booking.prescriptionImageUrl != null) ...[
+                          const SizedBox(height: 12),
+                          const Text(
+                            'Prescription',
+                            style: TextStyle(fontWeight: FontWeight.w500),
+                          ),
+                          const SizedBox(height: 8),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: Image.network(
+                              booking.prescriptionImageUrl!,
+                              height: 200,
+                              fit: BoxFit.contain,
+                              errorBuilder: (_, _, _) => Container(
+                                height: 100,
+                                decoration: BoxDecoration(
+                                  color: Colors.grey.shade100,
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: const Center(
+                                  child: Text('Image unavailable'),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                      if (booking.type == 'ambulance') ...[
+                        _DetailRow(
+                          label: 'Ambulance Type',
+                          value: booking.ambulanceType ?? '-',
+                        ),
+                        if (booking.patientConditionNotes != null)
+                          _DetailRow(
+                            label: 'Condition Notes',
+                            value: booking.patientConditionNotes!,
+                          ),
+                        if (booking.pickupAddress != null)
+                          _DetailRow(
+                            label: 'Pickup',
+                            value: booking.pickupAddress!,
+                          ),
+                        if (booking.destinationAddress != null)
+                          _DetailRow(
+                            label: 'Destination',
+                            value: booking.destinationAddress!,
+                          ),
+                      ],
+                      if (booking.type == 'blood') ...[
+                        _DetailRow(
+                          label: 'Blood Type',
+                          value: booking.bloodType ?? '-',
+                        ),
+                        _DetailRow(
+                          label: 'Units Needed',
+                          value: '${booking.unitsNeeded ?? 0}',
+                        ),
+                        _DetailRow(
+                          label: 'Hospital',
+                          value: booking.hospitalName ?? '-',
+                        ),
+                        _DetailRow(
+                          label: 'Prescribing Doctor',
+                          value: booking.prescribingDoctor ?? '-',
+                        ),
+                      ],
+                      if (booking.isConfirmed && booking.heldUntil != null) ...[
+                        const Divider(height: 32),
+                        _HoldCountdown(heldUntil: booking.heldUntil!),
+                      ],
+                      const Divider(height: 32),
+                      _DetailRow(
+                        label: 'Created',
+                        value: booking.createdAt.toString().split('.').first,
                       ),
                     ],
-                  ],
-                  if (booking.type == 'ambulance') ...[
-                    _DetailRow(label: 'Ambulance Type', value: booking.ambulanceType ?? '-'),
-                    if (booking.patientConditionNotes != null)
-                      _DetailRow(label: 'Condition Notes', value: booking.patientConditionNotes!),
-                    if (booking.pickupAddress != null)
-                      _DetailRow(label: 'Pickup', value: booking.pickupAddress!),
-                    if (booking.destinationAddress != null)
-                      _DetailRow(label: 'Destination', value: booking.destinationAddress!),
-                  ],
-                  if (booking.type == 'blood') ...[
-                    _DetailRow(label: 'Blood Type', value: booking.bloodType ?? '-'),
-                    _DetailRow(label: 'Units Needed', value: '${booking.unitsNeeded ?? 0}'),
-                    _DetailRow(label: 'Hospital', value: booking.hospitalName ?? '-'),
-                    _DetailRow(label: 'Prescribing Doctor', value: booking.prescribingDoctor ?? '-'),
-                  ],
-                  if (booking.isConfirmed && booking.heldUntil != null) ...[
-                    const Divider(height: 32),
-                    _HoldCountdown(heldUntil: booking.heldUntil!),
-                  ],
-                  const Divider(height: 32),
-                  _DetailRow(label: 'Created', value: booking.createdAt.toString().split('.').first),
-                ],
+                  ),
+                ),
               ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }
@@ -155,9 +236,20 @@ class _DetailRow extends StatelessWidget {
         children: [
           SizedBox(
             width: 160,
-            child: Text(label, style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.w500)),
+            child: Text(
+              label,
+              style: TextStyle(
+                color: Colors.grey.shade600,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
           ),
-          Expanded(child: Text(value, style: const TextStyle(fontWeight: FontWeight.w500))),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(fontWeight: FontWeight.w500),
+            ),
+          ),
         ],
       ),
     );
@@ -179,7 +271,13 @@ class _DetailRowWidget extends StatelessWidget {
         children: [
           SizedBox(
             width: 160,
-            child: Text(label, style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.w500)),
+            child: Text(
+              label,
+              style: TextStyle(
+                color: Colors.grey.shade600,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
           ),
           child,
         ],

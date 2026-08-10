@@ -10,6 +10,29 @@ class LazyExpiry {
     if (!DateTime.now().isAfter(booking.heldUntil!)) return booking;
 
     try {
+      if (booking.type == 'ambulance' && booking.ambulanceId != null) {
+        var expired = false;
+        await firestoreService.runTransaction((transaction) async {
+          final bookingDoc = firestoreService.db.doc(
+            'booking_requests/${booking.id}',
+          );
+          final ambulanceDoc = firestoreService.db.doc(
+            'organizations/${booking.organizationId}/ambulances/${booking.ambulanceId}',
+          );
+          final bookingSnapshot = await transaction.get(bookingDoc);
+          final ambulanceSnapshot = await transaction.get(ambulanceDoc);
+          if (!bookingSnapshot.exists || !ambulanceSnapshot.exists) return;
+
+          final bookingData = bookingSnapshot.data() as Map<String, dynamic>;
+          if (bookingData['status'] != 'confirmed') return;
+
+          transaction.update(bookingDoc, {'status': 'expired'});
+          transaction.update(ambulanceDoc, {'status': 'available'});
+          expired = true;
+        });
+        return expired ? booking.copyWith(status: 'expired') : booking;
+      }
+
       await firestoreService.updateDocument('booking_requests/${booking.id}', {
         'status': 'expired',
       });
@@ -18,10 +41,12 @@ class LazyExpiry {
       String? heldField;
 
       if (booking.type == 'bed') {
-        resourcePath = 'organizations/${booking.organizationId}/beds/${booking.bedType}';
+        resourcePath =
+            'organizations/${booking.organizationId}/beds/${booking.bedType}';
         heldField = 'held_beds';
       } else if (booking.type == 'blood') {
-        resourcePath = 'organizations/${booking.organizationId}/blood_stock/${booking.bloodType}';
+        resourcePath =
+            'organizations/${booking.organizationId}/blood_stock/${booking.bloodType}';
         heldField = 'held_units';
       } else if (booking.type == 'ambulance') {
         heldField = 'held_vehicles';

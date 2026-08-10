@@ -11,6 +11,47 @@ A unified emergency healthcare coordination platform built with **Flutter Web** 
 | **Emergency Blood Bank** | Search by blood type, check unit availability, request blood | Manage blood stock per type, approve/hold/issue units |
 | **Diagnostic Tests** | Search tests by name, compare prices across hospitals, tap-to-call | Manage test catalog with pricing and turnaround times |
 
+## Updates in This Branch
+
+### Service-Scoped Administration
+
+- Replaced the combined hospital workflow with four service roles: `bed_admin`, `test_admin`, `blood_bank_admin`, and `ambulance_admin`.
+- Bed admins manage bed inventory and bed requests; diagnostic test admins only manage the hospital test catalog.
+- Route guards and Firestore rules prevent admins from opening or modifying another service's data.
+- Existing `hospital_admin` users remain supported as a temporary legacy role with combined bed and test access. Reassign them after deploying the updated rules.
+- Role and organization assignment changes are observed in real time, without requiring the affected user to sign out and back in.
+
+### Live Booking Coordination
+
+- Patient booking lists and booking details use Firestore snapshot listeners.
+- Organization dashboards receive new patient requests and update Pending, Confirmed, Today, and Closed counts automatically.
+- Admin actions such as confirm, reject, complete, admit, or expire are reflected on the patient's open screen without a manual refresh.
+
+### Admin Dashboard Improvements
+
+- Organization admins see live request metrics, service-specific availability, organization contact details, and quick-action badges.
+- Super-admin organization summary cards are clickable and open filtered Hospital, Blood Bank, Ambulance Operator, or All Organization views.
+- Organization management includes category filters and filtered totals.
+- User Management now provides search, role filtering, pagination, responsive layouts, profile status, and an Assigned Hospital / Organization column.
+- Invalid role/organization combinations are flagged and must be corrected in the role editor.
+- Super admins cannot demote or delete their own account.
+
+### Ambulance Lifecycle Fixes
+
+- Ambulance confirmation now reserves an actual available vehicle instead of using bed/blood aggregate counters.
+- The assigned `ambulance_id` is stored on the booking.
+- Vehicle status changes from `available` to `busy` on confirmation and returns to `available` when the trip completes or expires.
+- Duplicate vehicle types are collapsed into one patient-facing type option, while the admin transaction selects an available vehicle.
+- Transaction failures now produce readable messages instead of boxed Dart web exceptions.
+
+### Security Rule Changes
+
+- Firestore writes are scoped by service role and assigned organization.
+- Users cannot change their own role or organization assignment.
+- Super admins can remove user profile documents and terminal booking requests can be cleaned by their responsible admins.
+- Removing a profile document does not remove the corresponding Firebase Authentication account; deleting another Auth user requires Firebase Admin SDK or a trusted backend.
+- The updated `firestore.rules` must be deployed before `bed_admin`, `test_admin`, and super-admin profile deletion work against production Firebase.
+
 ## Tech Stack
 
 - **Frontend:** Flutter Web (Dart)
@@ -102,9 +143,9 @@ firebase deploy --only firestore:rules
 This deploys the rules from `firestore.rules` which enforce:
 - Public read access for organization/service listings
 - Authenticated users can create bookings (if profile is complete)
-- Org admins can only manage their own organization's data
+- Service admins can only manage their assigned organization and service
 - Super admin has platform-wide access
-- Users can only read their own profile and bookings
+- Users can only read their own profile and bookings and cannot self-assign roles
 
 ### 6. Run the App
 
@@ -149,7 +190,8 @@ From the Super Admin dashboard:
 1. Go to **Manage Users**
 2. Find a user by email → click the **edit** icon
 3. Select a role:
-   - `hospital_admin` → assign to a hospital
+   - `bed_admin` → assign to a hospital to manage beds and bed requests
+   - `test_admin` → assign to a hospital to manage diagnostic tests
    - `blood_bank_admin` → assign to a blood bank
    - `ambulance_admin` → assign to an ambulance operator
 4. Select the **organization** from the dropdown
@@ -171,7 +213,8 @@ Instead of (or in addition to) demo data:
 | Role | Access |
 |------|--------|
 | **Patient** | Browse all services, make bookings, view booking history |
-| **Hospital Admin** | Manage beds, tests, and booking requests for their hospital |
+| **Bed Admin** | Manage beds and bed booking requests for their hospital |
+| **Diagnostic Test Admin** | Manage diagnostic tests, pricing, and turnaround times for their hospital |
 | **Blood Bank Admin** | Manage blood stock and blood requests for their blood bank |
 | **Ambulance Admin** | Manage fleet, fares, and trip requests for their operator |
 | **Super Admin** | Manage all organizations, assign roles, view all requests, seed data |
@@ -284,7 +327,7 @@ booking_requests/{requestId}
 ├── patient_name, contact_number, status, held_until, estimated_price, created_at
 ├── bed_type, prescription_image_url           (bed bookings)
 ├── blood_type, units_needed, hospital_name, prescribing_doctor  (blood requests)
-└── ambulance_type, pickup_address, destination_address, patient_condition_notes  (ambulance)
+└── ambulance_type, ambulance_id, pickup_address, destination_address, patient_condition_notes  (ambulance)
 
 users/{uid}
 └── email, name, phone, role, organization_id, profile_complete
@@ -301,6 +344,8 @@ config/platform
 | Email sign-in fails silently | Email/Password provider not enabled | Firebase Console → Authentication → Sign-in method → enable Email/Password |
 | "Weak password" error on register | Password too short | Firebase requires at least 6 characters |
 | Firestore permission denied | Security rules not deployed | Run `firebase deploy --only firestore:rules` |
+| `test_admin` or `bed_admin` cannot save data | Production is still using the legacy role rules | Deploy the updated `firestore.rules`; use `hospital_admin` only as a temporary migration role |
+| Super admin cannot remove a user profile | Deployed rules do not allow user document deletion | Deploy the updated `firestore.rules` |
 | Bookings disappear after refresh | Composite index required | Check browser console for Firestore index creation links, or the app handles this by client-side sorting |
 | First user isn't super admin | `config/platform` doc already exists | Delete `config/platform` from Firestore console, then sign in again |
 | Bed data not loading for admin | Subcollections not seeded | Load demo data from Super Admin dashboard, or manually add bed types |

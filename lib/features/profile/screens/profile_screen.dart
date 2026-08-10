@@ -38,9 +38,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
     setState(() => _isLoading = true);
     try {
       await context.read<AuthProvider>().updateProfile(
-            name: _nameController.text.trim(),
-            phone: _phoneController.text.trim(),
-          );
+        name: _nameController.text.trim(),
+        phone: _phoneController.text.trim(),
+      );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Profile updated successfully')),
@@ -48,9 +48,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to update profile: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to update profile: $e')));
       }
     }
     if (mounted) setState(() => _isLoading = false);
@@ -74,20 +74,41 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text('Profile', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+                    Text(
+                      'Profile',
+                      style: Theme.of(context).textTheme.headlineSmall
+                          ?.copyWith(fontWeight: FontWeight.bold),
+                    ),
                     const SizedBox(height: 8),
-                    Text('Email: ${auth.user?.email ?? ""}', style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey.shade600)),
-                    Text('Role: ${auth.user?.role ?? "patient"}', style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey.shade600)),
+                    Text(
+                      'Email: ${auth.user?.email ?? ""}',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                    Text(
+                      'Role: ${auth.user?.roleLabel ?? "Patient"}',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
                     const SizedBox(height: 24),
                     TextFormField(
                       controller: _nameController,
-                      decoration: const InputDecoration(labelText: 'Full Name', prefixIcon: Icon(Icons.person)),
+                      decoration: const InputDecoration(
+                        labelText: 'Full Name',
+                        prefixIcon: Icon(Icons.person),
+                      ),
                       validator: Validators.validateName,
                     ),
                     const SizedBox(height: 16),
                     TextFormField(
                       controller: _phoneController,
-                      decoration: const InputDecoration(labelText: 'Phone Number', prefixIcon: Icon(Icons.phone), hintText: '+880...'),
+                      decoration: const InputDecoration(
+                        labelText: 'Phone Number',
+                        prefixIcon: Icon(Icons.phone),
+                        hintText: '+880...',
+                      ),
                       keyboardType: TextInputType.phone,
                       validator: Validators.validatePhone,
                     ),
@@ -97,7 +118,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       child: FilledButton(
                         onPressed: _isLoading ? null : _save,
                         child: _isLoading
-                            ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
                             : const Text('Save Profile'),
                       ),
                     ),

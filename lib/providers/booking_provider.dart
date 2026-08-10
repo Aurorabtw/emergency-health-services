@@ -16,6 +16,54 @@ class BookingProvider extends ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get error => _error;
 
+  Stream<List<BookingRequestModel>> watchUserBookings(String userId) {
+    return _firestoreService
+        .streamCollection(
+          'booking_requests',
+          filters: [QueryFilter(field: 'user_id', isEqualTo: userId)],
+        )
+        .asyncMap(_bookingsFromSnapshot);
+  }
+
+  Stream<List<BookingRequestModel>> watchOrganizationBookings(
+    String organizationId, {
+    required String type,
+  }) {
+    return _firestoreService
+        .streamCollection(
+          'booking_requests',
+          filters: [
+            QueryFilter(field: 'organization_id', isEqualTo: organizationId),
+            QueryFilter(field: 'type', isEqualTo: type),
+          ],
+        )
+        .asyncMap(_bookingsFromSnapshot);
+  }
+
+  Stream<BookingRequestModel?> watchBooking(String bookingId) {
+    return _firestoreService
+        .streamDocument('booking_requests/$bookingId')
+        .asyncMap((doc) async {
+          if (!doc.exists) return null;
+          var booking = BookingRequestModel.fromFirestore(doc);
+          booking = await LazyExpiry.checkAndExpire(booking, _firestoreService);
+          return booking;
+        });
+  }
+
+  Future<List<BookingRequestModel>> _bookingsFromSnapshot(
+    QuerySnapshot snapshot,
+  ) async {
+    final bookings = <BookingRequestModel>[];
+    for (final doc in snapshot.docs) {
+      var booking = BookingRequestModel.fromFirestore(doc);
+      booking = await LazyExpiry.checkAndExpire(booking, _firestoreService);
+      bookings.add(booking);
+    }
+    bookings.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return bookings;
+  }
+
   Future<void> fetchUserBookings(String userId) async {
     _isLoading = true;
     _error = null;
@@ -108,7 +156,9 @@ class BookingProvider extends ChangeNotifier {
 
   Future<BookingRequestModel?> getBooking(String bookingId) async {
     try {
-      final doc = await _firestoreService.getDocument('booking_requests/$bookingId');
+      final doc = await _firestoreService.getDocument(
+        'booking_requests/$bookingId',
+      );
       if (doc.exists) {
         var booking = BookingRequestModel.fromFirestore(doc);
         booking = await LazyExpiry.checkAndExpire(booking, _firestoreService);
@@ -124,7 +174,10 @@ class BookingProvider extends ChangeNotifier {
     try {
       final id = _firestoreService.generateId('booking_requests');
       final newBooking = booking.copyWith(id: id);
-      await _firestoreService.setDocument('booking_requests/$id', newBooking.toFirestore());
+      await _firestoreService.setDocument(
+        'booking_requests/$id',
+        newBooking.toFirestore(),
+      );
       _bookings.insert(0, newBooking);
       notifyListeners();
       return id;
@@ -135,7 +188,12 @@ class BookingProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> confirmBooking(String bookingId, String resourcePath, String heldField, int holdMinutes) async {
+  Future<void> confirmBooking(
+    String bookingId,
+    String resourcePath,
+    String heldField,
+    int holdMinutes,
+  ) async {
     try {
       await _firestoreService.runTransaction((transaction) async {
         final resourceDoc = _firestoreService.db.doc(resourcePath);
@@ -143,8 +201,16 @@ class BookingProvider extends ChangeNotifier {
         final data = resourceSnapshot.data() as Map<String, dynamic>;
 
         final currentHeld = data[heldField] ?? 0;
-        final total = data['total_beds'] ?? data['total_units'] ?? data['total_vehicles'] ?? 0;
-        final admitted = data['admitted_beds'] ?? data['issued_units'] ?? data['in_transit_vehicles'] ?? 0;
+        final total =
+            data['total_beds'] ??
+            data['total_units'] ??
+            data['total_vehicles'] ??
+            0;
+        final admitted =
+            data['admitted_beds'] ??
+            data['issued_units'] ??
+            data['in_transit_vehicles'] ??
+            0;
         final available = total - currentHeld - admitted;
 
         if (available <= 0) {
@@ -155,7 +221,9 @@ class BookingProvider extends ChangeNotifier {
 
         transaction.update(resourceDoc, {heldField: currentHeld + 1});
 
-        final bookingDoc = _firestoreService.db.doc('booking_requests/$bookingId');
+        final bookingDoc = _firestoreService.db.doc(
+          'booking_requests/$bookingId',
+        );
         transaction.update(bookingDoc, {
           'status': 'confirmed',
           'held_until': Timestamp.fromDate(heldUntil),
@@ -170,7 +238,124 @@ class BookingProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> admitBooking(String bookingId, String resourcePath, String heldField, String admittedField) async {
+  Future<void> confirmAmbulanceBooking({
+    required String bookingId,
+    required String organizationId,
+    required String ambulanceId,
+    int holdMinutes = 30,
+  }) async {
+    try {
+      String? validationError;
+      await _firestoreService.runTransaction((transaction) async {
+        final ambulanceDoc = _firestoreService.db.doc(
+          'organizations/$organizationId/ambulances/$ambulanceId',
+        );
+        final bookingDoc = _firestoreService.db.doc(
+          'booking_requests/$bookingId',
+        );
+        final ambulanceSnapshot = await transaction.get(ambulanceDoc);
+        final bookingSnapshot = await transaction.get(bookingDoc);
+
+        if (!ambulanceSnapshot.exists || !bookingSnapshot.exists) {
+          validationError = 'The ambulance or booking no longer exists.';
+          return;
+        }
+
+        final ambulanceData = ambulanceSnapshot.data() as Map<String, dynamic>;
+        final bookingData = bookingSnapshot.data() as Map<String, dynamic>;
+        if (ambulanceData['status'] != 'available') {
+          validationError =
+              'This ambulance is no longer available. Refresh and try another vehicle.';
+          return;
+        }
+        if (bookingData['status'] != 'pending') {
+          validationError = 'This request has already been processed.';
+          return;
+        }
+
+        transaction.update(ambulanceDoc, {'status': 'busy'});
+        transaction.update(bookingDoc, {
+          'status': 'confirmed',
+          'held_until': Timestamp.fromDate(
+            DateTime.now().add(Duration(minutes: holdMinutes)),
+          ),
+          'ambulance_id': ambulanceId,
+        });
+      });
+
+      if (validationError != null) {
+        throw BookingOperationException(validationError!);
+      }
+
+      await _refreshBooking(bookingId);
+    } catch (e) {
+      final message = _operationError(
+        e,
+        fallback: 'Failed to confirm ambulance request.',
+      );
+      _error = message;
+      notifyListeners();
+      throw BookingOperationException(message);
+    }
+  }
+
+  Future<void> completeAmbulanceBooking({
+    required String bookingId,
+    required String organizationId,
+    required String ambulanceId,
+  }) async {
+    try {
+      String? validationError;
+      await _firestoreService.runTransaction((transaction) async {
+        final ambulanceDoc = _firestoreService.db.doc(
+          'organizations/$organizationId/ambulances/$ambulanceId',
+        );
+        final bookingDoc = _firestoreService.db.doc(
+          'booking_requests/$bookingId',
+        );
+        final ambulanceSnapshot = await transaction.get(ambulanceDoc);
+        final bookingSnapshot = await transaction.get(bookingDoc);
+
+        if (!ambulanceSnapshot.exists || !bookingSnapshot.exists) {
+          validationError = 'The ambulance or booking no longer exists.';
+          return;
+        }
+
+        final bookingData = bookingSnapshot.data() as Map<String, dynamic>;
+        if (bookingData['status'] != 'confirmed') {
+          validationError = 'Only confirmed trips can be completed.';
+          return;
+        }
+
+        transaction.update(ambulanceDoc, {'status': 'available'});
+        transaction.update(bookingDoc, {
+          'status': 'admitted',
+          'held_until': null,
+        });
+      });
+
+      if (validationError != null) {
+        throw BookingOperationException(validationError!);
+      }
+
+      await _refreshBooking(bookingId);
+    } catch (e) {
+      final message = _operationError(
+        e,
+        fallback: 'Failed to complete ambulance trip.',
+      );
+      _error = message;
+      notifyListeners();
+      throw BookingOperationException(message);
+    }
+  }
+
+  Future<void> admitBooking(
+    String bookingId,
+    String resourcePath,
+    String heldField,
+    String admittedField,
+  ) async {
     try {
       await _firestoreService.runTransaction((transaction) async {
         final resourceDoc = _firestoreService.db.doc(resourcePath);
@@ -185,7 +370,9 @@ class BookingProvider extends ChangeNotifier {
           admittedField: currentAdmitted + 1,
         });
 
-        final bookingDoc = _firestoreService.db.doc('booking_requests/$bookingId');
+        final bookingDoc = _firestoreService.db.doc(
+          'booking_requests/$bookingId',
+        );
         transaction.update(bookingDoc, {'status': 'admitted'});
       });
 
@@ -220,7 +407,9 @@ class BookingProvider extends ChangeNotifier {
   }
 
   Future<void> _refreshBooking(String bookingId) async {
-    final doc = await _firestoreService.getDocument('booking_requests/$bookingId');
+    final doc = await _firestoreService.getDocument(
+      'booking_requests/$bookingId',
+    );
     if (doc.exists) {
       final updated = BookingRequestModel.fromFirestore(doc);
       final index = _bookings.indexWhere((b) => b.id == bookingId);
@@ -230,4 +419,21 @@ class BookingProvider extends ChangeNotifier {
       notifyListeners();
     }
   }
+
+  String _operationError(Object error, {required String fallback}) {
+    if (error is BookingOperationException) return error.message;
+    if (error is FirebaseException) {
+      return error.message ?? '$fallback (${error.code})';
+    }
+    return fallback;
+  }
+}
+
+class BookingOperationException implements Exception {
+  final String message;
+
+  const BookingOperationException(this.message);
+
+  @override
+  String toString() => message;
 }

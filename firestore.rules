@@ -14,10 +14,32 @@ service cloud.firestore {
       return isAuthenticated() && getUserData().role == 'super_admin';
     }
 
-    function isOrgAdmin(orgId) {
+    function isAssignedAdmin(orgId, roles) {
       return isAuthenticated()
         && getUserData().organization_id == orgId
-        && getUserData().role in ['hospital_admin', 'blood_bank_admin', 'ambulance_admin'];
+        && getUserData().role in roles;
+    }
+
+    function isBedAdmin(orgId) {
+      return isAssignedAdmin(orgId, ['bed_admin', 'hospital_admin']);
+    }
+
+    function isTestAdmin(orgId) {
+      return isAssignedAdmin(orgId, ['test_admin', 'hospital_admin']);
+    }
+
+    function isBloodBankAdmin(orgId) {
+      return isAssignedAdmin(orgId, ['blood_bank_admin']);
+    }
+
+    function isAmbulanceAdmin(orgId) {
+      return isAssignedAdmin(orgId, ['ambulance_admin']);
+    }
+
+    function canManageBooking(orgId, type) {
+      return (type == 'bed' && isBedAdmin(orgId))
+        || (type == 'blood' && isBloodBankAdmin(orgId))
+        || (type == 'ambulance' && isAmbulanceAdmin(orgId));
     }
 
     function isProfileComplete() {
@@ -32,25 +54,25 @@ service cloud.firestore {
       // Beds subcollection
       match /beds/{bedId} {
         allow read: if true;
-        allow create, update, delete: if isOrgAdmin(orgId) || isSuperAdmin();
+        allow create, update, delete: if isBedAdmin(orgId) || isSuperAdmin();
       }
 
       // Ambulances subcollection
       match /ambulances/{vehicleId} {
         allow read: if true;
-        allow create, update, delete: if isOrgAdmin(orgId) || isSuperAdmin();
+        allow create, update, delete: if isAmbulanceAdmin(orgId) || isSuperAdmin();
       }
 
       // Blood stock subcollection
       match /blood_stock/{stockId} {
         allow read: if true;
-        allow create, update, delete: if isOrgAdmin(orgId) || isSuperAdmin();
+        allow create, update, delete: if isBloodBankAdmin(orgId) || isSuperAdmin();
       }
 
       // Tests subcollection
       match /tests/{testId} {
         allow read: if true;
-        allow create, update, delete: if isOrgAdmin(orgId) || isSuperAdmin();
+        allow create, update, delete: if isTestAdmin(orgId) || isSuperAdmin();
       }
     }
 
@@ -70,24 +92,29 @@ service cloud.firestore {
 
       allow read: if isAuthenticated() && (
         resource.data.user_id == request.auth.uid
-        || isOrgAdmin(resource.data.organization_id)
+        || canManageBooking(resource.data.organization_id, resource.data.type)
         || isSuperAdmin()
       );
 
       allow update: if isAuthenticated() && (
-        isOrgAdmin(resource.data.organization_id)
+        canManageBooking(resource.data.organization_id, resource.data.type)
         || isSuperAdmin()
         // Allow lazy expiry updates from any authenticated user reading the doc
         || (resource.data.user_id == request.auth.uid
             && request.resource.data.status == 'expired'
             && resource.data.status == 'confirmed')
       );
+
+      allow delete: if isSuperAdmin()
+        || (canManageBooking(resource.data.organization_id, resource.data.type)
+          && resource.data.status in ['rejected', 'expired', 'admitted']);
     }
 
     // Platform config
     match /config/{docId} {
       allow read: if true;
-      allow write: if isAuthenticated();
+      allow create: if isSuperAdmin();
+      allow update, delete: if isSuperAdmin();
     }
 
     // User profiles
@@ -96,11 +123,20 @@ service cloud.firestore {
         request.auth.uid == userId || isSuperAdmin()
       );
 
-      allow create: if isAuthenticated() && request.auth.uid == userId;
+      allow create: if isAuthenticated()
+        && request.auth.uid == userId
+        && request.resource.data.organization_id == null
+        && (request.resource.data.role == 'patient'
+          || (request.resource.data.role == 'super_admin'
+            && !exists(/databases/$(database)/documents/config/platform)));
 
-      allow update: if isAuthenticated() && (
-        request.auth.uid == userId || isSuperAdmin()
-      );
+      allow update: if isSuperAdmin()
+        || (isAuthenticated()
+          && request.auth.uid == userId
+          && request.resource.data.role == resource.data.role
+          && request.resource.data.organization_id == resource.data.organization_id);
+
+      allow delete: if isSuperAdmin();
     }
   }
 }

@@ -22,9 +22,15 @@ class _SuperAdminDashboardState extends State<SuperAdminDashboard> {
   @override
   Widget build(BuildContext context) {
     final orgProvider = context.watch<OrganizationProvider>();
-    final hospitals = orgProvider.organizations.where((o) => o.type == 'hospital').length;
-    final bloodBanks = orgProvider.organizations.where((o) => o.type == 'blood_bank').length;
-    final ambulanceOps = orgProvider.organizations.where((o) => o.type == 'ambulance_operator').length;
+    final hospitals = orgProvider.organizations
+        .where((o) => o.type == 'hospital')
+        .length;
+    final bloodBanks = orgProvider.organizations
+        .where((o) => o.type == 'blood_bank')
+        .length;
+    final ambulanceOps = orgProvider.organizations
+        .where((o) => o.type == 'ambulance_operator')
+        .length;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
@@ -34,16 +40,50 @@ class _SuperAdminDashboardState extends State<SuperAdminDashboard> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Platform Administration', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+              Text(
+                'Platform Administration',
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
               const SizedBox(height: 24),
               Wrap(
                 spacing: 16,
                 runSpacing: 16,
                 children: [
-                  _StatCard(title: 'Hospitals', count: hospitals, icon: Icons.local_hospital, color: Colors.blue),
-                  _StatCard(title: 'Blood Banks', count: bloodBanks, icon: Icons.bloodtype, color: Colors.red),
-                  _StatCard(title: 'Ambulance Operators', count: ambulanceOps, icon: Icons.emergency, color: Colors.orange),
-                  _StatCard(title: 'Total Organizations', count: orgProvider.organizations.length, icon: Icons.business, color: Colors.teal),
+                  _StatCard(
+                    title: 'Hospitals',
+                    count: hospitals,
+                    icon: Icons.local_hospital,
+                    color: Colors.blue,
+                    onTap: () =>
+                        context.go('/super-admin/organizations?type=hospital'),
+                  ),
+                  _StatCard(
+                    title: 'Blood Banks',
+                    count: bloodBanks,
+                    icon: Icons.bloodtype,
+                    color: Colors.red,
+                    onTap: () => context.go(
+                      '/super-admin/organizations?type=blood_bank',
+                    ),
+                  ),
+                  _StatCard(
+                    title: 'Ambulance Operators',
+                    count: ambulanceOps,
+                    icon: Icons.emergency,
+                    color: Colors.orange,
+                    onTap: () => context.go(
+                      '/super-admin/organizations?type=ambulance_operator',
+                    ),
+                  ),
+                  _StatCard(
+                    title: 'Total Organizations',
+                    count: orgProvider.organizations.length,
+                    icon: Icons.business,
+                    color: Colors.teal,
+                    onTap: () => context.go('/super-admin/organizations'),
+                  ),
                 ],
               ),
               const SizedBox(height: 32),
@@ -71,15 +111,19 @@ class _SuperAdminDashboardState extends State<SuperAdminDashboard> {
               const SizedBox(height: 16),
               _ActionCard(
                 title: 'All Booking Requests',
-                description: 'View and oversee all booking requests across organizations',
+                description:
+                    'View and oversee all booking requests across organizations',
                 icon: Icons.list_alt,
                 onTap: () => context.go('/super-admin/requests'),
               ),
-              if (orgProvider.organizations.isEmpty && !orgProvider.isLoading) ...[
+              if (orgProvider.organizations.isEmpty &&
+                  !orgProvider.isLoading) ...[
                 const SizedBox(height: 32),
-                _SeedDataCard(onSeeded: () {
-                  context.read<OrganizationProvider>().fetchOrganizations();
-                }),
+                _SeedDataCard(
+                  onSeeded: () {
+                    context.read<OrganizationProvider>().fetchOrganizations();
+                  },
+                ),
               ],
             ],
           ),
@@ -94,24 +138,50 @@ class _StatCard extends StatelessWidget {
   final int count;
   final IconData icon;
   final Color color;
+  final VoidCallback onTap;
 
-  const _StatCard({required this.title, required this.count, required this.icon, required this.color});
+  const _StatCard({
+    required this.title,
+    required this.count,
+    required this.icon,
+    required this.color,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
       width: 200,
       child: Card(
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(icon, color: color, size: 32),
-              const SizedBox(height: 12),
-              Text('$count', style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold)),
-              Text(title, style: TextStyle(color: Colors.grey.shade600)),
-            ],
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(icon, color: color, size: 32),
+                    const Spacer(),
+                    Icon(
+                      Icons.arrow_outward,
+                      color: Colors.grey.shade400,
+                      size: 18,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  '$count',
+                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                Text(title, style: TextStyle(color: Colors.grey.shade600)),
+              ],
+            ),
           ),
         ),
       ),
@@ -125,7 +195,12 @@ class _ActionCard extends StatelessWidget {
   final IconData icon;
   final VoidCallback onTap;
 
-  const _ActionCard({required this.title, required this.description, required this.icon, required this.onTap});
+  const _ActionCard({
+    required this.title,
+    required this.description,
+    required this.icon,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -137,18 +212,34 @@ class _ActionCard extends StatelessWidget {
           padding: const EdgeInsets.all(20),
           child: Row(
             children: [
-              Icon(icon, size: 40, color: Theme.of(context).colorScheme.primary),
+              Icon(
+                icon,
+                size: 40,
+                color: Theme.of(context).colorScheme.primary,
+              ),
               const SizedBox(width: 16),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(title, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
-                    Text(description, style: TextStyle(color: Colors.grey.shade600)),
+                    Text(
+                      title,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Text(
+                      description,
+                      style: TextStyle(color: Colors.grey.shade600),
+                    ),
                   ],
                 ),
               ),
-              Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey.shade400),
+              Icon(
+                Icons.arrow_forward_ios,
+                size: 16,
+                color: Colors.grey.shade400,
+              ),
             ],
           ),
         ),
@@ -217,10 +308,16 @@ class _SeedDataCardState extends State<_SeedDataCard> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('No organizations yet', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+                      Text(
+                        'No organizations yet',
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.bold),
+                      ),
                       const SizedBox(height: 4),
-                      Text('Load demo data with sample hospitals, blood banks, and ambulance operators to get started.',
-                          style: TextStyle(color: Colors.grey.shade700)),
+                      Text(
+                        'Load demo data with sample hospitals, blood banks, and ambulance operators to get started.',
+                        style: TextStyle(color: Colors.grey.shade700),
+                      ),
                     ],
                   ),
                 ),
@@ -230,11 +327,25 @@ class _SeedDataCardState extends State<_SeedDataCard> {
             if (_message != null)
               Padding(
                 padding: const EdgeInsets.only(bottom: 12),
-                child: Text(_message!, style: TextStyle(color: _message!.startsWith('Error') ? Colors.red : Colors.green.shade700, fontWeight: FontWeight.w500)),
+                child: Text(
+                  _message!,
+                  style: TextStyle(
+                    color: _message!.startsWith('Error')
+                        ? Colors.red
+                        : Colors.green.shade700,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
               ),
             ElevatedButton.icon(
               onPressed: _loading ? null : _seed,
-              icon: _loading ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.download),
+              icon: _loading
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.download),
               label: Text(_loading ? 'Loading...' : 'Load Demo Data'),
             ),
           ],

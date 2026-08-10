@@ -80,6 +80,23 @@ GoRouter createRouter(AuthProvider authProvider) {
       if (path.startsWith('/admin')) {
         if (!isLoggedIn) return '/login';
         if (!authProvider.isOrgAdmin) return '/';
+        if (path == '/admin/beds' && !authProvider.isBedAdmin) {
+          return '/admin/dashboard';
+        }
+        if (path == '/admin/tests' && !authProvider.isTestAdmin) {
+          return '/admin/dashboard';
+        }
+        if (path == '/admin/blood-stock' && !authProvider.isBloodBankAdmin) {
+          return '/admin/dashboard';
+        }
+        if (path == '/admin/ambulances' && !authProvider.isAmbulanceAdmin) {
+          return '/admin/dashboard';
+        }
+        if (path == '/admin/requests' &&
+            authProvider.isTestAdmin &&
+            !authProvider.isBedAdmin) {
+          return '/admin/dashboard';
+        }
       }
 
       if (path == '/my-bookings' || path.startsWith('/booking/')) {
@@ -93,51 +110,142 @@ GoRouter createRouter(AuthProvider authProvider) {
       return null;
     },
     routes: [
-      GoRoute(path: '/login', builder: (_, __) => const LoginScreen()),
+      GoRoute(path: '/login', builder: (_, _) => const LoginScreen()),
       ShellRoute(
-        builder: (_, __, child) => AppShell(child: child),
+        builder: (_, _, child) => AppShell(child: child),
         routes: [
-          GoRoute(path: '/', pageBuilder: (_, state) => _fadePage(state, const HomeScreen())),
-          GoRoute(path: '/beds', pageBuilder: (_, state) => _fadePage(state, const BedListingsScreen())),
+          GoRoute(
+            path: '/',
+            pageBuilder: (_, state) => _fadePage(state, const HomeScreen()),
+          ),
+          GoRoute(
+            path: '/beds',
+            pageBuilder: (_, state) =>
+                _fadePage(state, const BedListingsScreen()),
+          ),
           GoRoute(
             path: '/beds/book/:orgId',
-            pageBuilder: (_, state) =>
-                _fadePage(state, BedBookingScreen(organizationId: state.pathParameters['orgId']!)),
+            pageBuilder: (_, state) => _fadePage(
+              state,
+              BedBookingScreen(organizationId: state.pathParameters['orgId']!),
+            ),
           ),
-          GoRoute(path: '/ambulance', pageBuilder: (_, state) => _fadePage(state, const AmbulanceListingsScreen())),
+          GoRoute(
+            path: '/ambulance',
+            pageBuilder: (_, state) =>
+                _fadePage(state, const AmbulanceListingsScreen()),
+          ),
           GoRoute(
             path: '/ambulance/book/:orgId',
-            pageBuilder: (_, state) =>
-                _fadePage(state, AmbulanceBookingScreen(organizationId: state.pathParameters['orgId']!)),
+            pageBuilder: (_, state) => _fadePage(
+              state,
+              AmbulanceBookingScreen(
+                organizationId: state.pathParameters['orgId']!,
+              ),
+            ),
           ),
-          GoRoute(path: '/blood', pageBuilder: (_, state) => _fadePage(state, const BloodListingsScreen())),
+          GoRoute(
+            path: '/blood',
+            pageBuilder: (_, state) =>
+                _fadePage(state, const BloodListingsScreen()),
+          ),
           GoRoute(
             path: '/blood/request/:orgId',
-            pageBuilder: (_, state) =>
-                _fadePage(state, BloodRequestScreen(organizationId: state.pathParameters['orgId']!)),
+            pageBuilder: (_, state) => _fadePage(
+              state,
+              BloodRequestScreen(
+                organizationId: state.pathParameters['orgId']!,
+              ),
+            ),
           ),
-          GoRoute(path: '/tests', pageBuilder: (_, state) => _fadePage(state, const TestSearchScreen())),
-          GoRoute(path: '/my-bookings', pageBuilder: (_, state) => _fadePage(state, const MyBookingsScreen())),
+          GoRoute(
+            path: '/tests',
+            pageBuilder: (_, state) =>
+                _fadePage(state, const TestSearchScreen()),
+          ),
+          GoRoute(
+            path: '/my-bookings',
+            pageBuilder: (_, state) =>
+                _fadePage(state, const MyBookingsScreen()),
+          ),
           GoRoute(
             path: '/booking/:id',
-            pageBuilder: (_, state) =>
-                _fadePage(state, BookingDetailScreen(bookingId: state.pathParameters['id']!)),
+            pageBuilder: (_, state) => _fadePage(
+              state,
+              BookingDetailScreen(bookingId: state.pathParameters['id']!),
+            ),
           ),
-          GoRoute(path: '/profile', pageBuilder: (_, state) => _fadePage(state, const ProfileScreen())),
+          GoRoute(
+            path: '/profile',
+            pageBuilder: (_, state) => _fadePage(state, const ProfileScreen()),
+          ),
 
           // Admin routes
-          GoRoute(path: '/admin/dashboard', pageBuilder: (_, state) => _fadePage(state, const OrgAdminDashboard())),
-          GoRoute(path: '/admin/beds', pageBuilder: (_, state) => _fadePage(state, const ManageBedsScreen())),
-          GoRoute(path: '/admin/ambulances', pageBuilder: (_, state) => _fadePage(state, const ManageFleetScreen())),
-          GoRoute(path: '/admin/blood-stock', pageBuilder: (_, state) => _fadePage(state, const ManageBloodStockScreen())),
-          GoRoute(path: '/admin/tests', pageBuilder: (_, state) => _fadePage(state, const ManageTestsScreen())),
-          GoRoute(path: '/admin/requests', pageBuilder: (_, state) => _fadePage(state, const _AdminRequestsRouter())),
+          GoRoute(
+            path: '/admin/dashboard',
+            pageBuilder: (_, state) =>
+                _fadePage(state, const OrgAdminDashboard()),
+          ),
+          GoRoute(
+            path: '/admin/beds',
+            pageBuilder: (_, state) =>
+                _fadePage(state, const ManageBedsScreen()),
+          ),
+          GoRoute(
+            path: '/admin/ambulances',
+            pageBuilder: (_, state) =>
+                _fadePage(state, const ManageFleetScreen()),
+          ),
+          GoRoute(
+            path: '/admin/blood-stock',
+            pageBuilder: (_, state) =>
+                _fadePage(state, const ManageBloodStockScreen()),
+          ),
+          GoRoute(
+            path: '/admin/tests',
+            pageBuilder: (_, state) =>
+                _fadePage(state, const ManageTestsScreen()),
+          ),
+          GoRoute(
+            path: '/admin/requests',
+            pageBuilder: (_, state) =>
+                _fadePage(state, const _AdminRequestsRouter()),
+          ),
 
           // Super Admin routes
-          GoRoute(path: '/super-admin/dashboard', pageBuilder: (_, state) => _fadePage(state, const SuperAdminDashboard())),
-          GoRoute(path: '/super-admin/organizations', pageBuilder: (_, state) => _fadePage(state, const ManageOrganizationsScreen())),
-          GoRoute(path: '/super-admin/users', pageBuilder: (_, state) => _fadePage(state, const ManageUsersScreen())),
-          GoRoute(path: '/super-admin/requests', pageBuilder: (_, state) => _fadePage(state, const _SuperAdminRequestsView())),
+          GoRoute(
+            path: '/super-admin/dashboard',
+            pageBuilder: (_, state) =>
+                _fadePage(state, const SuperAdminDashboard()),
+          ),
+          GoRoute(
+            path: '/super-admin/organizations',
+            pageBuilder: (_, state) {
+              final requestedType = state.uri.queryParameters['type'];
+              final typeFilter =
+                  const {
+                    'hospital',
+                    'blood_bank',
+                    'ambulance_operator',
+                  }.contains(requestedType)
+                  ? requestedType
+                  : null;
+              return _fadePage(
+                state,
+                ManageOrganizationsScreen(typeFilter: typeFilter),
+              );
+            },
+          ),
+          GoRoute(
+            path: '/super-admin/users',
+            pageBuilder: (_, state) =>
+                _fadePage(state, const ManageUsersScreen()),
+          ),
+          GoRoute(
+            path: '/super-admin/requests',
+            pageBuilder: (_, state) =>
+                _fadePage(state, const _SuperAdminRequestsView()),
+          ),
         ],
       ),
     ],
@@ -151,7 +259,7 @@ class _AdminRequestsRouter extends StatelessWidget {
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
 
-    if (auth.isHospitalAdmin) return const BedRequestsScreen();
+    if (auth.isBedAdmin) return const BedRequestsScreen();
     if (auth.isBloodBankAdmin) return const BloodRequestsScreen();
     if (auth.isAmbulanceAdmin) return const AmbulanceRequestsScreen();
 
@@ -163,10 +271,12 @@ class _SuperAdminRequestsView extends StatefulWidget {
   const _SuperAdminRequestsView();
 
   @override
-  State<_SuperAdminRequestsView> createState() => _SuperAdminRequestsViewState();
+  State<_SuperAdminRequestsView> createState() =>
+      _SuperAdminRequestsViewState();
 }
 
-class _SuperAdminRequestsViewState extends State<_SuperAdminRequestsView> with SingleTickerProviderStateMixin {
+class _SuperAdminRequestsViewState extends State<_SuperAdminRequestsView>
+    with SingleTickerProviderStateMixin {
   late TabController _tabController;
   String? _typeFilter;
 
@@ -209,9 +319,17 @@ class _SuperAdminRequestsViewState extends State<_SuperAdminRequestsView> with S
             children: [
               Row(
                 children: [
-                  Text('All Booking Requests', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+                  Text(
+                    'All Booking Requests',
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                   const Spacer(),
-                  IconButton(icon: const Icon(Icons.refresh), onPressed: _loadRequests),
+                  IconButton(
+                    icon: const Icon(Icons.refresh),
+                    onPressed: _loadRequests,
+                  ),
                 ],
               ),
               const SizedBox(height: 16),
@@ -226,11 +344,24 @@ class _SuperAdminRequestsViewState extends State<_SuperAdminRequestsView> with S
               ),
               const SizedBox(height: 16),
               if (bookingProvider.isLoading)
-                const Center(child: Padding(padding: EdgeInsets.all(48), child: CircularProgressIndicator()))
+                const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(48),
+                    child: CircularProgressIndicator(),
+                  ),
+                )
               else if (bookingProvider.bookings.isEmpty)
-                const Center(child: Padding(padding: EdgeInsets.all(48), child: Text('No booking requests')))
+                const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(48),
+                    child: Text('No booking requests'),
+                  ),
+                )
               else
-                ...bookingProvider.bookings.map((booking) => _RequestCard(booking: booking, onRefresh: _loadRequests)),
+                ...bookingProvider.bookings.map(
+                  (booking) =>
+                      _RequestCard(booking: booking, onRefresh: _loadRequests),
+                ),
             ],
           ),
         ),
@@ -247,28 +378,40 @@ class _RequestCard extends StatelessWidget {
 
   IconData _typeIcon(String type) {
     switch (type) {
-      case 'bed': return Icons.bed;
-      case 'ambulance': return Icons.emergency;
-      case 'blood': return Icons.bloodtype;
-      default: return Icons.info;
+      case 'bed':
+        return Icons.bed;
+      case 'ambulance':
+        return Icons.emergency;
+      case 'blood':
+        return Icons.bloodtype;
+      default:
+        return Icons.info;
     }
   }
 
   Color _typeColor(String type) {
     switch (type) {
-      case 'bed': return Colors.blue;
-      case 'ambulance': return Colors.orange;
-      case 'blood': return Colors.red;
-      default: return Colors.grey;
+      case 'bed':
+        return Colors.blue;
+      case 'ambulance':
+        return Colors.orange;
+      case 'blood':
+        return Colors.red;
+      default:
+        return Colors.grey;
     }
   }
 
   String _typeLabel(String type) {
     switch (type) {
-      case 'bed': return 'Bed';
-      case 'ambulance': return 'Ambulance';
-      case 'blood': return 'Blood';
-      default: return type;
+      case 'bed':
+        return 'Bed';
+      case 'ambulance':
+        return 'Ambulance';
+      case 'blood':
+        return 'Blood';
+      default:
+        return type;
     }
   }
 
@@ -284,7 +427,10 @@ class _RequestCard extends StatelessWidget {
             Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: _typeColor(booking.type).withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(4),
@@ -292,27 +438,55 @@ class _RequestCard extends StatelessWidget {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(_typeIcon(booking.type), size: 14, color: _typeColor(booking.type)),
+                      Icon(
+                        _typeIcon(booking.type),
+                        size: 14,
+                        color: _typeColor(booking.type),
+                      ),
                       const SizedBox(width: 4),
-                      Text(_typeLabel(booking.type), style: TextStyle(color: _typeColor(booking.type), fontWeight: FontWeight.w600, fontSize: 12)),
+                      Text(
+                        _typeLabel(booking.type),
+                        style: TextStyle(
+                          color: _typeColor(booking.type),
+                          fontWeight: FontWeight.w600,
+                          fontSize: 12,
+                        ),
+                      ),
                     ],
                   ),
                 ),
                 const SizedBox(width: 8),
                 if (booking.organizationName != null)
-                  Expanded(child: Text(booking.organizationName!, style: TextStyle(color: Colors.grey.shade600, fontSize: 13)))
+                  Expanded(
+                    child: Text(
+                      booking.organizationName!,
+                      style: TextStyle(
+                        color: Colors.grey.shade600,
+                        fontSize: 13,
+                      ),
+                    ),
+                  )
                 else
                   const Spacer(),
                 BookingStatusChip(status: booking.status),
               ],
             ),
             const SizedBox(height: 8),
-            Text(booking.patientName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            Text(
+              booking.patientName,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
             Text('Phone: ${booking.contactNumber}'),
-            if (booking.type == 'bed') Text('Bed Type: ${booking.bedType ?? "-"}'),
-            if (booking.type == 'blood') Text('Blood: ${booking.bloodType ?? "-"}  |  Units: ${booking.unitsNeeded ?? 0}'),
-            if (booking.type == 'ambulance') Text('Ambulance: ${booking.ambulanceType ?? "-"}'),
-            if (booking.estimatedPrice != null) PriceWidget(price: booking.estimatedPrice),
+            if (booking.type == 'bed')
+              Text('Bed Type: ${booking.bedType ?? "-"}'),
+            if (booking.type == 'blood')
+              Text(
+                'Blood: ${booking.bloodType ?? "-"}  |  Units: ${booking.unitsNeeded ?? 0}',
+              ),
+            if (booking.type == 'ambulance')
+              Text('Ambulance: ${booking.ambulanceType ?? "-"}'),
+            if (booking.estimatedPrice != null)
+              PriceWidget(price: booking.estimatedPrice),
             if (booking.isPending) ...[
               const SizedBox(height: 12),
               Row(
@@ -320,10 +494,14 @@ class _RequestCard extends StatelessWidget {
                 children: [
                   OutlinedButton(
                     onPressed: () async {
-                      await context.read<BookingProvider>().rejectBooking(booking.id);
+                      await context.read<BookingProvider>().rejectBooking(
+                        booking.id,
+                      );
                       onRefresh();
                     },
-                    style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.red,
+                    ),
                     child: const Text('Reject'),
                   ),
                 ],

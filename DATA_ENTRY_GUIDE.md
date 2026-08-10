@@ -12,10 +12,10 @@ A step-by-step guide for teammates to add and manage all types of data in the Em
    - [Add Organization Manually](#22-add-an-organization-manually)
    - [Assign Admin Roles to Users](#23-assign-admin-roles-to-users)
    - [Remove Organizations or Users](#24-remove-organizations-or-users)
-3. [Hospital Admin — Bed Management](#3-hospital-admin--bed-management)
+3. [Bed Admin — Bed Management](#3-bed-admin--bed-management)
    - [Add a Bed Type](#31-add-a-bed-type)
    - [Edit or Delete a Bed Type](#32-edit-or-delete-a-bed-type)
-4. [Hospital Admin — Diagnostic Test Management](#4-hospital-admin--diagnostic-test-management)
+4. [Diagnostic Test Admin — Diagnostic Test Management](#4-diagnostic-test-admin--diagnostic-test-management)
    - [Add a Diagnostic Test](#41-add-a-diagnostic-test)
    - [Edit or Delete a Test](#42-edit-or-delete-a-test)
 5. [Blood Bank Admin — Blood Stock Management](#5-blood-bank-admin--blood-stock-management)
@@ -119,10 +119,11 @@ Click **Add** — the organization is created as **Verified** immediately.
 2. Click the **edit (pencil) icon** on their row
 3. In the dialog:
    - **Role dropdown** — select the admin type:
-     - `Hospital Admin` — for hospitals
+     - `Bed Admin` — for hospital beds and bed requests
+     - `Diagnostic Test Admin` — for a hospital's test catalog
      - `Blood Bank Admin` — for blood banks
      - `Ambulance Admin` — for ambulance operators
-   - **Organization dropdown** — appears after selecting a role; pick the organization they'll manage (only shows matching organizations — e.g., hospital admins see only hospitals)
+   - **Organization dropdown** — appears after selecting a role; pick the organization they'll manage (only shows matching organizations — e.g., bed and test admins see only hospitals)
 4. Click **Save**
 
 The user will see their admin dashboard on their next page load.
@@ -141,7 +142,7 @@ The user will see their admin dashboard on their next page load.
 
 ---
 
-## 3. Hospital Admin — Bed Management
+## 3. Bed Admin — Bed Management
 
 **Navigate:** Admin Dashboard → **Manage Beds** card
 
@@ -173,7 +174,7 @@ Click **Save**.
 
 ---
 
-## 4. Hospital Admin — Diagnostic Test Management
+## 4. Diagnostic Test Admin — Diagnostic Test Management
 
 **Navigate:** Admin Dashboard → **Manage Tests** card
 
@@ -372,7 +373,7 @@ Before booking, patients must complete their profile:
 **Bed Booking:**
 1. Go to **Beds** tab → pick a hospital → click to open booking
 2. Fill in: bed type, contact number, upload prescription image (optional)
-3. Submit → the request goes to the hospital admin
+3. Submit → the request goes to the bed admin
 
 **Blood Request:**
 1. Go to **Blood** tab → pick a blood bank → click to open request
@@ -517,7 +518,8 @@ If you're adding data manually (instead of using demo data), here are realistic 
   - [ ] Have a teammate register (email) or sign in (Google)
   - [ ] Assign them the correct admin role + organization
 - [ ] Each admin logs in and adds their data:
-  - [ ] **Hospital Admin:** Add bed types + diagnostic tests
+  - [ ] **Bed Admin:** Add bed types and manage bed requests
+  - [ ] **Diagnostic Test Admin:** Add diagnostic tests and pricing
   - [ ] **Blood Bank Admin:** Add all 8 blood types with stock levels
   - [ ] **Ambulance Admin:** Add vehicles with fares
 - [ ] Test: Sign in as a patient → browse listings → submit a booking → admin approves it
