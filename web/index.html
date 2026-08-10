@@ -33,6 +33,20 @@
   <title>Emergency Healthcare</title>
   <link rel="manifest" href="manifest.json">
 
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(async (registrations) => {
+        if (registrations.length === 0) return;
+        await Promise.all(registrations.map((registration) => registration.unregister()));
+        if ('caches' in window) {
+          const cacheNames = await caches.keys();
+          await Promise.all(cacheNames.map((name) => caches.delete(name)));
+        }
+        window.location.reload();
+      });
+    }
+  </script>
+
 </head>
 
 <body>

@@ -19,7 +19,7 @@ jobs:
           cache: true
 
       - run: flutter pub get
-      - run: flutter build web --release
+      - run: flutter build web --release --pwa-strategy=none
 
       # Gate: only deploy when the service-account secret has been added.
       # Until then the build still runs (validating the app compiles),
