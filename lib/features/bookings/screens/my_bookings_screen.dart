@@ -213,7 +213,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
                             ],
                           ),
                           isThreeLine: true,
-                          onTap: () => context.go('/booking/${booking.id}'),
+                          onTap: () => context.push('/booking/${booking.id}'),
                         ),
                       ),
                     ),

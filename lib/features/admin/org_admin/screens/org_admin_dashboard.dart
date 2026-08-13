@@ -271,28 +271,28 @@ class _OrgAdminDashboardState extends State<OrgAdminDashboard> {
                         value: '$pending',
                         icon: Icons.pending_actions,
                         color: Colors.orange,
-                        onTap: () => context.go(requestRoute),
+                        onTap: () => context.push(requestRoute),
                       ),
                       _StatCard(
                         title: 'Confirmed',
                         value: '$confirmed',
                         icon: Icons.verified,
                         color: Colors.blue,
-                        onTap: () => context.go(requestRoute),
+                        onTap: () => context.push(requestRoute),
                       ),
                       _StatCard(
                         title: 'Today',
                         value: '$today',
                         icon: Icons.today,
                         color: Colors.blue,
-                        onTap: () => context.go(requestRoute),
+                        onTap: () => context.push(requestRoute),
                       ),
                       _StatCard(
                         title: 'Closed',
                         value: '$terminal',
                         icon: Icons.task_alt,
                         color: Colors.green,
-                        onTap: () => context.go(requestRoute),
+                        onTap: () => context.push(requestRoute),
                       ),
                     ],
                     if (handlesDiagnosticQueue) ...[
@@ -302,7 +302,7 @@ class _OrgAdminDashboardState extends State<OrgAdminDashboard> {
                         icon: Icons.people_alt_outlined,
                         color: Colors.orange,
                         onTap: () =>
-                            context.go('/admin/test-queue?status=waiting'),
+                            context.push('/admin/test-queue?status=waiting'),
                       ),
                       _StatCard(
                         title: 'Called',
@@ -310,7 +310,7 @@ class _OrgAdminDashboardState extends State<OrgAdminDashboard> {
                         icon: Icons.campaign_outlined,
                         color: Colors.blue,
                         onTap: () =>
-                            context.go('/admin/test-queue?status=called'),
+                            context.push('/admin/test-queue?status=called'),
                       ),
                       _StatCard(
                         title: 'Diagnostic Today',
@@ -318,7 +318,7 @@ class _OrgAdminDashboardState extends State<OrgAdminDashboard> {
                         icon: Icons.today,
                         color: Colors.purple,
                         onTap: () =>
-                            context.go('/admin/test-queue?status=waiting'),
+                            context.push('/admin/test-queue?status=waiting'),
                       ),
                       _StatCard(
                         title: 'Completed',
@@ -326,7 +326,7 @@ class _OrgAdminDashboardState extends State<OrgAdminDashboard> {
                         icon: Icons.task_alt,
                         color: Colors.green,
                         onTap: () =>
-                            context.go('/admin/test-queue?status=completed'),
+                            context.push('/admin/test-queue?status=completed'),
                       ),
                     ],
                     if (auth.isBedAdmin)
@@ -335,7 +335,7 @@ class _OrgAdminDashboardState extends State<OrgAdminDashboard> {
                         value: '$availableBeds/$totalBeds',
                         icon: Icons.bed,
                         color: Colors.indigo,
-                        onTap: () => context.go('/admin/beds'),
+                        onTap: () => context.push('/admin/beds'),
                       ),
                     if (auth.isTestAdmin)
                       _StatCard(
@@ -343,7 +343,7 @@ class _OrgAdminDashboardState extends State<OrgAdminDashboard> {
                         value: '${tests.length}',
                         icon: Icons.science,
                         color: Colors.purple,
-                        onTap: () => context.go('/admin/tests'),
+                        onTap: () => context.push('/admin/tests'),
                       ),
                     if (auth.isBloodBankAdmin)
                       _StatCard(
@@ -351,7 +351,7 @@ class _OrgAdminDashboardState extends State<OrgAdminDashboard> {
                         value: '$availableUnits/$totalUnits',
                         icon: Icons.bloodtype,
                         color: Colors.red,
-                        onTap: () => context.go('/admin/blood-stock'),
+                        onTap: () => context.push('/admin/blood-stock'),
                       ),
                     if (auth.isAmbulanceAdmin)
                       _StatCard(
@@ -359,7 +359,7 @@ class _OrgAdminDashboardState extends State<OrgAdminDashboard> {
                         value: '$availableAmbulances/${ambulances.length}',
                         icon: Icons.emergency,
                         color: Colors.deepOrange,
-                        onTap: () => context.go('/admin/ambulances'),
+                        onTap: () => context.push('/admin/ambulances'),
                       ),
                   ],
                 ),
@@ -381,7 +381,7 @@ class _OrgAdminDashboardState extends State<OrgAdminDashboard> {
                         description: 'Update bed types, counts, and pricing',
                         icon: Icons.bed,
                         badge: '$availableBeds available',
-                        onTap: () => context.go('/admin/beds'),
+                        onTap: () => context.push('/admin/beds'),
                       ),
                     if (auth.isTestAdmin)
                       _AdminActionCard(
@@ -391,7 +391,7 @@ class _OrgAdminDashboardState extends State<OrgAdminDashboard> {
                         icon: Icons.science,
                         badge: '$diagnosticWaiting waiting',
                         onTap: () =>
-                            context.go('/admin/test-queue?status=waiting'),
+                            context.push('/admin/test-queue?status=waiting'),
                       ),
                     if (auth.isBloodBankAdmin)
                       _AdminActionCard(
@@ -399,7 +399,7 @@ class _OrgAdminDashboardState extends State<OrgAdminDashboard> {
                         description: 'Update blood inventory and fees',
                         icon: Icons.bloodtype,
                         badge: '$availableUnits units',
-                        onTap: () => context.go('/admin/blood-stock'),
+                        onTap: () => context.push('/admin/blood-stock'),
                       ),
                     if (auth.isAmbulanceAdmin)
                       _AdminActionCard(
@@ -407,7 +407,7 @@ class _OrgAdminDashboardState extends State<OrgAdminDashboard> {
                         description: 'Update vehicles, status, and fares',
                         icon: Icons.emergency,
                         badge: '$availableAmbulances available',
-                        onTap: () => context.go('/admin/ambulances'),
+                        onTap: () => context.push('/admin/ambulances'),
                       ),
                     if (handlesBookings)
                       _AdminActionCard(
@@ -415,7 +415,7 @@ class _OrgAdminDashboardState extends State<OrgAdminDashboard> {
                         description: 'Review and manage incoming requests',
                         icon: Icons.list_alt,
                         badge: '$pending pending',
-                        onTap: () => context.go('/admin/requests'),
+                        onTap: () => context.push('/admin/requests'),
                       ),
                   ],
                 ),

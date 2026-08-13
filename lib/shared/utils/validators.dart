@@ -6,6 +6,9 @@ class Validators {
     if (value.trim().length < 2) {
       return 'Name must be at least 2 characters';
     }
+    if (value.trim().length > 80) {
+      return 'Name must be 80 characters or fewer';
+    }
     return null;
   }
 
@@ -14,7 +17,7 @@ class Validators {
       return 'Phone number is required';
     }
     final cleaned = value.replaceAll(RegExp(r'[\s\-\(\)]'), '');
-    if (cleaned.length < 10 || cleaned.length > 15) {
+    if (!RegExp(r'^\+?\d{10,15}$').hasMatch(cleaned)) {
       return 'Enter a valid phone number';
     }
     return null;

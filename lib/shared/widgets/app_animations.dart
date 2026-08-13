@@ -80,21 +80,41 @@ class HoverLift extends StatefulWidget {
 
 class _HoverLiftState extends State<HoverLift> {
   bool _hovered = false;
+  bool _pressed = false;
 
   @override
   Widget build(BuildContext context) {
     return MouseRegion(
+      cursor: SystemMouseCursors.click,
       onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: AnimatedContainer(
-        duration: AppTheme.fast,
-        curve: Curves.easeOut,
-        transform: Matrix4.translationValues(0, _hovered ? -widget.lift : 0, 0),
-        decoration: BoxDecoration(
-          borderRadius: widget.borderRadius ?? BorderRadius.circular(16),
-          boxShadow: _hovered ? AppTheme.cardShadowHover : AppTheme.cardShadow,
+      onExit: (_) => setState(() {
+        _hovered = false;
+        _pressed = false;
+      }),
+      child: Listener(
+        onPointerDown: (_) => setState(() => _pressed = true),
+        onPointerUp: (_) => setState(() => _pressed = false),
+        onPointerCancel: (_) => setState(() => _pressed = false),
+        child: AnimatedScale(
+          scale: _pressed ? 0.992 : 1,
+          duration: AppTheme.fast,
+          curve: AppTheme.easeOut,
+          child: AnimatedContainer(
+            duration: AppTheme.fast,
+            curve: AppTheme.easeOut,
+            transform: Matrix4.translationValues(
+              0,
+              _hovered && !_pressed ? -widget.lift : 0,
+              0,
+            ),
+            decoration: BoxDecoration(
+              borderRadius: widget.borderRadius ?? BorderRadius.circular(16),
+              boxShadow:
+                  _hovered ? AppTheme.cardShadowHover : AppTheme.cardShadow,
+            ),
+            child: widget.child,
+          ),
         ),
-        child: widget.child,
       ),
     );
   }

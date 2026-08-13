@@ -92,6 +92,11 @@ class AppTheme {
 
     return base.copyWith(
       textTheme: textTheme,
+      splashFactory: InkRipple.splashFactory,
+      hoverColor: primary.withValues(alpha: 0.04),
+      focusColor: primary.withValues(alpha: 0.07),
+      highlightColor: primary.withValues(alpha: 0.05),
+      splashColor: primary.withValues(alpha: 0.08),
 
       appBarTheme: AppBarTheme(
         centerTitle: false,
@@ -107,6 +112,7 @@ class AppTheme {
         elevation: 0,
         color: surface,
         surfaceTintColor: Colors.transparent,
+        clipBehavior: Clip.antiAlias,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
           side: const BorderSide(color: surfaceBorder),

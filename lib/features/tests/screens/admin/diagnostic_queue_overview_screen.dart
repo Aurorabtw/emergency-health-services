@@ -56,7 +56,7 @@ class _DiagnosticQueueOverviewScreenState
   void _selectStatus(String status) {
     if (_status == status) return;
     setState(() => _status = status);
-    context.go('/admin/test-queue?status=$status');
+    context.replace('/admin/test-queue?status=$status');
   }
 
   Future<void> _runAction(

@@ -44,7 +44,14 @@ service cloud.firestore {
     }
 
     function isProfileComplete() {
-      return isAuthenticated() && getUserData().profile_complete == true;
+      return isAuthenticated()
+        && getUserData().profile_complete == true
+        && getUserData().name is string
+        && getUserData().name.size() >= 2
+        && getUserData().name.size() <= 80
+        && getUserData().phone is string
+        && getUserData().phone.size() >= 10
+        && getUserData().phone.size() <= 20;
     }
 
     function isCurrentQueueDay(data) {
@@ -397,8 +404,18 @@ service cloud.firestore {
       allow update: if isSuperAdmin()
         || (isAuthenticated()
           && request.auth.uid == userId
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['name', 'phone', 'profile_complete'])
           && request.resource.data.role == resource.data.role
-          && request.resource.data.organization_id == resource.data.organization_id);
+          && request.resource.data.organization_id == resource.data.organization_id
+          && request.resource.data.email == resource.data.email
+          && request.resource.data.name is string
+          && request.resource.data.name.size() >= 2
+          && request.resource.data.name.size() <= 80
+          && request.resource.data.phone is string
+          && request.resource.data.phone.size() >= 10
+          && request.resource.data.phone.size() <= 20
+          && request.resource.data.profile_complete == true);
 
       allow delete: if isSuperAdmin();
 

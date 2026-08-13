@@ -38,16 +38,21 @@ import '../providers/auth_provider.dart';
 
 final navigatorKey = GlobalKey<NavigatorState>();
 
-/// Fade-through transition used for all in-shell navigation.
-/// Opacity-only animation — cheap to composite, no layout work.
+/// Fast opacity transition used for all in-shell navigation.
 CustomTransitionPage<void> _fadePage(GoRouterState state, Widget child) {
   return CustomTransitionPage<void>(
     key: state.pageKey,
     child: child,
-    transitionDuration: const Duration(milliseconds: 220),
+    transitionDuration: const Duration(milliseconds: 160),
+    reverseTransitionDuration: const Duration(milliseconds: 120),
     transitionsBuilder: (context, animation, secondaryAnimation, child) {
+      if (MediaQuery.disableAnimationsOf(context)) return child;
       return FadeTransition(
-        opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
+        opacity: CurvedAnimation(
+          parent: animation,
+          curve: Curves.easeOutCubic,
+          reverseCurve: Curves.easeInCubic,
+        ),
         child: child,
       );
     },
@@ -123,7 +128,10 @@ GoRouter createRouter(AuthProvider authProvider) {
       return null;
     },
     routes: [
-      GoRoute(path: '/login', builder: (_, _) => const LoginScreen()),
+      GoRoute(
+        path: '/login',
+        pageBuilder: (_, state) => _fadePage(state, const LoginScreen()),
+      ),
       ShellRoute(
         builder: (_, _, child) => AppShell(child: child),
         routes: [

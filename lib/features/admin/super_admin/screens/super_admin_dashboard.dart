@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/link.dart';
 
 import '../../../../providers/organization_provider.dart';
 import '../../../../services/seed_data_service.dart';
 
-Uri _dashboardUri(String route) => Uri(path: '/', fragment: route);
+Uri _dashboardUri(String route) => Uri.parse(route);
 
 class SuperAdminDashboard extends StatefulWidget {
   const SuperAdminDashboard({super.key});
@@ -18,7 +19,11 @@ class _SuperAdminDashboardState extends State<SuperAdminDashboard> {
   @override
   void initState() {
     super.initState();
-    context.read<OrganizationProvider>().fetchOrganizations();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        context.read<OrganizationProvider>().fetchOrganizations();
+      }
+    });
   }
 
   @override
@@ -143,12 +148,12 @@ class _StatCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Link(
       uri: _dashboardUri(route),
-      builder: (context, followLink) => SizedBox(
+      builder: (context, _) => SizedBox(
         width: 200,
         child: Card(
           clipBehavior: Clip.antiAlias,
           child: InkWell(
-            onTap: followLink,
+            onTap: () => context.push(route),
             child: Padding(
               padding: const EdgeInsets.all(20),
               child: Column(
@@ -200,9 +205,9 @@ class _ActionCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Link(
       uri: _dashboardUri(route),
-      builder: (context, followLink) => Card(
+      builder: (context, _) => Card(
         child: InkWell(
-          onTap: followLink,
+          onTap: () => context.push(route),
           borderRadius: BorderRadius.circular(12),
           child: Padding(
             padding: const EdgeInsets.all(20),

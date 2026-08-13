@@ -134,7 +134,7 @@ class _BedListingsScreenState extends State<BedListingsScreen> {
                     title: h.name,
                     snippet: h.address,
                     available: bedProvider.getTotalAvailable(h.id, bedType: _bedTypeFilter),
-                    onTap: () => context.go('/beds/book/${h.id}'),
+                    onTap: () => context.push('/beds/book/${h.id}'),
                   )).toList(),
                   centerLat: locationProvider.latitude,
                   centerLng: locationProvider.longitude,
@@ -158,7 +158,7 @@ class _BedListingsScreenState extends State<BedListingsScreen> {
                   final card = Card(
                     margin: EdgeInsets.zero,
                     child: InkWell(
-                      onTap: () => context.go('/beds/book/${hospital.id}'),
+                      onTap: () => context.push('/beds/book/${hospital.id}'),
                       borderRadius: BorderRadius.circular(12),
                       child: Padding(
                         padding: const EdgeInsets.all(16),

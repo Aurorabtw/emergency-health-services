@@ -28,6 +28,11 @@ class UserModel {
   bool get isOrgAdmin =>
       isBedAdmin || isTestAdmin || isBloodBankAdmin || isAmbulanceAdmin;
   bool get isSuperAdmin => role == 'super_admin';
+  bool get hasUsableContactProfile {
+    final cleanedPhone = phone?.replaceAll(RegExp(r'[\s\-\(\)]'), '') ?? '';
+    return (name?.trim().length ?? 0) >= 2 &&
+        RegExp(r'^\+?\d{10,15}$').hasMatch(cleanedPhone);
+  }
 
   String get roleLabel => switch (role) {
     'bed_admin' => 'Bed Admin',
@@ -36,7 +41,8 @@ class UserModel {
     'blood_bank_admin' => 'Blood Bank Admin',
     'ambulance_admin' => 'Ambulance Admin',
     'super_admin' => 'Super Admin',
-    _ => 'Patient',
+    'patient' => 'Patient',
+    _ => 'Unknown Role',
   };
 
   factory UserModel.fromFirestore(DocumentSnapshot doc) {

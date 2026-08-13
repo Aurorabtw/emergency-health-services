@@ -31,7 +31,8 @@ class AuthProvider extends ChangeNotifier {
   bool get isBloodBankAdmin => _userModel?.isBloodBankAdmin ?? false;
   bool get isAmbulanceAdmin => _userModel?.isAmbulanceAdmin ?? false;
   bool get isSuperAdmin => _userModel?.isSuperAdmin ?? false;
-  bool get isProfileComplete => _userModel?.profileComplete ?? false;
+  bool get isProfileComplete =>
+      _userModel?.hasUsableContactProfile ?? false;
   String? get error => _error;
 
   AuthProvider() {
@@ -78,9 +79,7 @@ class AuthProvider extends ChangeNotifier {
           email: firebaseUser.email ?? '',
           name: firebaseUser.displayName,
           role: role,
-          profileComplete:
-              firebaseUser.displayName != null &&
-              firebaseUser.displayName!.isNotEmpty,
+          profileComplete: false,
         );
         await _firestoreService.setDocument(
           'users/${firebaseUser.uid}',
@@ -237,7 +236,7 @@ class AuthProvider extends ChangeNotifier {
           email: email.trim(),
           name: name.trim(),
           role: role,
-          profileComplete: name.trim().isNotEmpty,
+          profileComplete: false,
         );
         await _firestoreService.setDocument(
           'users/${credential.user!.uid}',
@@ -329,18 +328,29 @@ class AuthProvider extends ChangeNotifier {
     required String name,
     required String phone,
   }) async {
-    if (_userModel == null) return;
+    if (_userModel == null) {
+      throw StateError('No authenticated user profile is available.');
+    }
+    final trimmedName = name.trim();
+    final trimmedPhone = phone.trim();
+    final cleanedPhone = trimmedPhone.replaceAll(RegExp(r'[\s\-\(\)]'), '');
+    final complete = trimmedName.length >= 2 &&
+        trimmedName.length <= 80 &&
+        RegExp(r'^\+?\d{10,15}$').hasMatch(cleanedPhone);
+    if (!complete) {
+      throw ArgumentError('Enter a valid name and phone number.');
+    }
 
     await _firestoreService.updateDocument('users/${_userModel!.uid}', {
-      'name': name,
-      'phone': phone,
-      'profile_complete': true,
+      'name': trimmedName,
+      'phone': trimmedPhone,
+      'profile_complete': complete,
     });
 
     _userModel = _userModel!.copyWith(
-      name: name,
-      phone: phone,
-      profileComplete: true,
+      name: trimmedName,
+      phone: trimmedPhone,
+      profileComplete: complete,
     );
     notifyListeners();
   }

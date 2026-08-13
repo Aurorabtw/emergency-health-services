@@ -101,7 +101,7 @@ class _BloodListingsScreenState extends State<BloodListingsScreen> {
                       title: o.name,
                       snippet: o.address,
                       available: totalAvailable,
-                      onTap: () => context.go('/blood/request/${o.id}'),
+                      onTap: () => context.push('/blood/request/${o.id}'),
                     );
                   }).toList(),
                   centerLat: locationProvider.latitude,
@@ -135,7 +135,7 @@ class _BloodListingsScreenState extends State<BloodListingsScreen> {
                   return Card(
                     margin: const EdgeInsets.only(bottom: 12),
                     child: InkWell(
-                      onTap: () => context.go('/blood/request/${org.id}'),
+                      onTap: () => context.push('/blood/request/${org.id}'),
                       borderRadius: BorderRadius.circular(12),
                       child: Padding(
                         padding: const EdgeInsets.all(16),

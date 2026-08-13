@@ -110,7 +110,7 @@ class _AmbulanceListingsScreenState extends State<AmbulanceListingsScreen> {
                       title: op.name,
                       snippet: op.address,
                       available: availableCount,
-                      onTap: () => context.go('/ambulance/book/${op.id}'),
+                      onTap: () => context.push('/ambulance/book/${op.id}'),
                     );
                   }).toList(),
                   centerLat: locationProvider.latitude,
@@ -142,7 +142,7 @@ class _AmbulanceListingsScreenState extends State<AmbulanceListingsScreen> {
                   return Card(
                     margin: const EdgeInsets.only(bottom: 12),
                     child: InkWell(
-                      onTap: () => context.go('/ambulance/book/${op.id}'),
+                      onTap: () => context.push('/ambulance/book/${op.id}'),
                       borderRadius: BorderRadius.circular(12),
                       child: Padding(
                         padding: const EdgeInsets.all(16),

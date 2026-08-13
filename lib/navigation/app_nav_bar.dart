@@ -131,7 +131,9 @@ class AppNavBar extends StatelessWidget implements PreferredSizeWidget {
               color: AppTheme.textSecondary,
             ),
             tooltip: 'Profile',
-            onPressed: () => context.go('/profile'),
+            onPressed: () {
+              if (currentPath != '/profile') context.push('/profile');
+            },
           ),
           IconButton(
             icon: const Icon(

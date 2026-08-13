@@ -307,7 +307,7 @@ class _ServiceCard extends StatelessWidget {
             color: AppTheme.surface,
             borderRadius: BorderRadius.circular(16),
             child: InkWell(
-              onTap: () => context.go(route),
+              onTap: () => context.push(route),
               borderRadius: BorderRadius.circular(16),
               child: Container(
                 padding: const EdgeInsets.all(24),

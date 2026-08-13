@@ -38,6 +38,23 @@ void main() {
     expect(legacyAdmin.roleLabel, 'Hospital Admin (Legacy)');
   });
 
+  test('profile completion requires a usable name and phone', () {
+    final incomplete = UserModel(
+      uid: 'patient-id',
+      email: 'patient@example.com',
+      name: 'Patient',
+      profileComplete: true,
+    );
+    final complete = incomplete.copyWith(phone: '+8801712345678');
+
+    expect(incomplete.hasUsableContactProfile, isFalse);
+    expect(complete.hasUsableContactProfile, isTrue);
+  });
+
+  test('unknown roles are not presented as patients', () {
+    expect(userWithRole('unexpected_role').roleLabel, 'Unknown Role');
+  });
+
   test('ambulance booking stores its assigned vehicle', () {
     final booking = BookingRequestModel(
       id: 'booking-id',
