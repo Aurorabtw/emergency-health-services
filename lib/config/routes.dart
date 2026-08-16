@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -329,26 +330,36 @@ class _SuperAdminRequestsView extends StatefulWidget {
 
 class _SuperAdminRequestsViewState extends State<_SuperAdminRequestsView>
     with SingleTickerProviderStateMixin {
-  late TabController _tabController;
-  String? _typeFilter;
+  static const List<String?> _types = [
+    null,
+    'bed',
+    'blood',
+    'ambulance',
+    'test',
+  ];
+
+  late final TabController _tabController;
+  int _tabIndex = 0;
+
+  // Live listener on the most recent booking requests, newest first. Uses only
+  // the automatic single-field created_at index (no composite index) and a
+  // real-time snapshot (not a one-time get), so it loads reliably and stays
+  // current. The tabs filter the loaded list in memory.
+  final Stream<QuerySnapshot<Map<String, dynamic>>> _stream =
+      FirebaseFirestore.instance
+          .collection('booking_requests')
+          .orderBy('created_at', descending: true)
+          .limit(300)
+          .snapshots();
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 5, vsync: this);
-    _tabController.addListener(_onTabChanged);
-    _loadRequests();
-  }
-
-  void _onTabChanged() {
-    if (_tabController.indexIsChanging) return;
-    final types = [null, 'bed', 'blood', 'ambulance', 'test'];
-    _typeFilter = types[_tabController.index];
-    _loadRequests();
-  }
-
-  void _loadRequests() {
-    context.read<BookingProvider>().fetchAllBookings(type: _typeFilter);
+    _tabController = TabController(length: _types.length, vsync: this);
+    _tabController.addListener(() {
+      if (_tabController.indexIsChanging) return;
+      setState(() => _tabIndex = _tabController.index);
+    });
   }
 
   @override
@@ -359,7 +370,7 @@ class _SuperAdminRequestsViewState extends State<_SuperAdminRequestsView>
 
   @override
   Widget build(BuildContext context) {
-    final bookingProvider = context.watch<BookingProvider>();
+    final typeFilter = _types[_tabIndex];
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
@@ -369,20 +380,11 @@ class _SuperAdminRequestsViewState extends State<_SuperAdminRequestsView>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  Text(
-                    'All Booking Requests',
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  const Spacer(),
-                  IconButton(
-                    icon: const Icon(Icons.refresh),
-                    onPressed: _loadRequests,
-                  ),
-                ],
+              Text(
+                'All Booking Requests',
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               const SizedBox(height: 16),
               TabBar(
@@ -397,48 +399,44 @@ class _SuperAdminRequestsViewState extends State<_SuperAdminRequestsView>
                 ],
               ),
               const SizedBox(height: 16),
-              if (bookingProvider.isLoading)
-                const Center(
-                  child: Padding(
-                    padding: EdgeInsets.all(48),
-                    child: CircularProgressIndicator(),
-                  ),
-                )
-              else if (bookingProvider.bookings.isEmpty)
-                const Center(
-                  child: Padding(
-                    padding: EdgeInsets.all(48),
-                    child: Text('No booking requests'),
-                  ),
-                )
-              else
-                ...bookingProvider.bookings.map(
-                  (booking) =>
-                      _RequestCard(booking: booking, onRefresh: _loadRequests),
-                ),
-              if (bookingProvider.hasMoreBookings) ...[
-                const SizedBox(height: 8),
-                Center(
-                  child: OutlinedButton.icon(
-                    onPressed: bookingProvider.isLoading ||
-                            bookingProvider.isLoadingMore
-                        ? null
-                        : () => context.read<BookingProvider>().loadMoreBookings(),
-                    icon: bookingProvider.isLoadingMore
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.expand_more),
-                    label: Text(
-                      bookingProvider.isLoadingMore
-                          ? 'Loading…'
-                          : 'Load older requests',
-                    ),
-                  ),
-                ),
-              ],
+              StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                stream: _stream,
+                builder: (context, snapshot) {
+                  if (snapshot.hasError) {
+                    return Padding(
+                      padding: const EdgeInsets.all(48),
+                      child: Center(
+                        child: Text(
+                          'Could not load requests: ${snapshot.error}',
+                        ),
+                      ),
+                    );
+                  }
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Padding(
+                      padding: EdgeInsets.all(48),
+                      child: Center(child: CircularProgressIndicator()),
+                    );
+                  }
+                  final bookings = (snapshot.data?.docs ?? [])
+                      .map((doc) => BookingRequestModel.tryFromFirestore(doc))
+                      .whereType<BookingRequestModel>()
+                      .where((b) => typeFilter == null || b.type == typeFilter)
+                      .toList();
+                  if (bookings.isEmpty) {
+                    return const Padding(
+                      padding: EdgeInsets.all(48),
+                      child: Center(child: Text('No booking requests')),
+                    );
+                  }
+                  return Column(
+                    children: [
+                      for (final booking in bookings)
+                        _RequestCard(booking: booking, onRefresh: () {}),
+                    ],
+                  );
+                },
+              ),
             ],
           ),
         ),

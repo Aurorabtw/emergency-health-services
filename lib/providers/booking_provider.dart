@@ -23,6 +23,9 @@ class BookingProvider extends ChangeNotifier {
   int _fetchGeneration = 0;
 
   static const int _terminalPageSize = 25;
+  // Cap the "active" fetch so it always completes over any connection, instead
+  // of streaming every pending/confirmed booking on the whole platform.
+  static const int _operationalPageSize = 50;
 
   DocumentSnapshot? _terminalCursor;
   bool _hasMoreTerminal = false;
@@ -244,9 +247,12 @@ class BookingProvider extends ChangeNotifier {
   ) async {
     final bookings = <BookingRequestModel>[];
     for (final doc in snapshot.docs) {
-      var booking = BookingRequestModel.tryFromFirestore(doc);
+      final booking = BookingRequestModel.tryFromFirestore(doc);
       if (booking == null) continue;
-      booking = await LazyExpiry.checkAndExpire(booking, _firestoreService);
+      // Restore expired holds in the background so a large list never blocks on
+      // a per-booking network round-trip. The expiry write re-fires this
+      // snapshot, which then shows the row in its expired state.
+      unawaited(LazyExpiry.checkAndExpire(booking, _firestoreService));
       bookings.add(booking);
     }
     bookings.sort((a, b) => b.createdAt.compareTo(a.createdAt));
@@ -363,6 +369,7 @@ class BookingProvider extends ChangeNotifier {
     final snapshot = await query
         .where('status', whereIn: statuses)
         .orderBy('created_at', descending: true)
+        .limit(_operationalPageSize)
         .get();
     return _bookingsFromSnapshot(snapshot);
   }
@@ -422,9 +429,10 @@ class BookingProvider extends ChangeNotifier {
   ) async {
     final bookings = <BookingRequestModel>[];
     for (final doc in docs) {
-      var booking = BookingRequestModel.tryFromFirestore(doc);
+      final booking = BookingRequestModel.tryFromFirestore(doc);
       if (booking == null) continue;
-      booking = await LazyExpiry.checkAndExpire(booking, _firestoreService);
+      // Background expiry (see _bookingsFromSnapshot) — never block the list.
+      unawaited(LazyExpiry.checkAndExpire(booking, _firestoreService));
       bookings.add(booking);
     }
     bookings.sort((a, b) => b.createdAt.compareTo(a.createdAt));
