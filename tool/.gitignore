@@ -1,0 +1,8 @@
+node_modules/
+auth-profiles.json
+complete-audit.json
+inventory.json
+migration.json
+revocations.json
+verification.json
+*.tmp-*

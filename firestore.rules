@@ -10,74 +10,1495 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
 
-    function isSuperAdmin() {
-      return isAuthenticated() && getUserData().role == 'super_admin';
+    function userAccessRevoked(data) {
+      return data.keys().hasAny(['access_revoked'])
+        && data.access_revoked == true;
     }
 
-    function isOrgAdmin(orgId) {
+    function isActiveUser() {
+      let userPath = /databases/$(database)/documents/users/$(request.auth.uid);
       return isAuthenticated()
+        && exists(userPath)
+        && !userAccessRevoked(get(userPath).data);
+    }
+
+    function organizationState(data) {
+      return data.keys().hasAny(['lifecycle_state'])
+        ? data.lifecycle_state
+        : (data.keys().hasAny(['archived']) && data.archived == true
+          ? 'archived'
+          : 'active');
+    }
+
+    function organizationDataIsActive(data) {
+      return organizationState(data) == 'active'
+        && (!data.keys().hasAny(['archived']) || data.archived == false);
+    }
+
+    function isOrganizationActive(orgId) {
+      let organizationPath = /databases/$(database)/documents/organizations/$(orgId);
+      return existsAfter(organizationPath)
+        && organizationDataIsActive(getAfter(organizationPath).data);
+    }
+
+    function isOrganizationManageable(orgId) {
+      let organizationPath = /databases/$(database)/documents/organizations/$(orgId);
+      return exists(organizationPath)
+        && organizationState(get(organizationPath).data)
+          in ['active', 'archiving']
+        && (!get(organizationPath).data.keys().hasAny(['archived'])
+          || get(organizationPath).data.archived == false);
+    }
+
+    function archiveLockIsStale(data) {
+      return data.archive_lock_at is timestamp
+        && data.archive_lock_at + duration.value(15, 'm') <= request.time;
+    }
+
+    function isLifecycleNeutralOrganizationUpdate() {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'lifecycle_state',
+        'archived',
+        'archive_lock_at',
+        'archive_lock_by',
+        'archived_at',
+        'archived_by'
+      ]);
+    }
+
+    function isArchiveLockAcquisition() {
+      return organizationState(resource.data) == 'active'
+        && organizationState(request.resource.data) == 'archiving'
+        && request.resource.data.archived == false
+        && request.resource.data.archive_lock_at == request.time
+        && request.resource.data.archive_lock_by == request.auth.uid
+        && request.resource.data.archived_at == null
+        && request.resource.data.archived_by == null
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'lifecycle_state',
+          'archived',
+          'archive_lock_at',
+          'archive_lock_by',
+          'archived_at',
+          'archived_by',
+          'updated_at'
+        ]);
+    }
+
+    function isArchiveLockTakeover() {
+      return organizationState(resource.data) == 'archiving'
+        && organizationState(request.resource.data) == 'archiving'
+        && archiveLockIsStale(resource.data)
+        && request.resource.data.archived == false
+        && request.resource.data.archive_lock_at == request.time
+        && request.resource.data.archive_lock_by == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'archive_lock_at',
+          'archive_lock_by',
+          'archived_at',
+          'archived_by',
+          'updated_at'
+        ]);
+    }
+
+    function isArchiveLockCancellation() {
+      return organizationState(resource.data) == 'archiving'
+        && organizationState(request.resource.data) == 'active'
+        && request.resource.data.archived == false
+        && request.resource.data.archive_lock_at == null
+        && request.resource.data.archive_lock_by == null
+        && request.resource.data.archived_at == null
+        && request.resource.data.archived_by == null
+        && (resource.data.archive_lock_by == request.auth.uid
+          || archiveLockIsStale(resource.data))
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'lifecycle_state',
+          'archived',
+          'archive_lock_at',
+          'archive_lock_by',
+          'archived_at',
+          'archived_by',
+          'updated_at'
+        ]);
+    }
+
+    function isArchiveFinalization() {
+      return organizationState(resource.data) == 'archiving'
+        && resource.data.archive_lock_by == request.auth.uid
+        && organizationState(request.resource.data) == 'archived'
+        && request.resource.data.archived == true
+        && request.resource.data.archive_lock_at == null
+        && request.resource.data.archive_lock_by == null
+        && request.resource.data.archived_at == request.time
+        && request.resource.data.archived_by == request.auth.uid
+        && request.resource.data.verified == false
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'lifecycle_state',
+          'archived',
+          'archive_lock_at',
+          'archive_lock_by',
+          'archived_at',
+          'archived_by',
+          'verified',
+          'updated_at'
+        ]);
+    }
+
+    function isArchiveRestore() {
+      return organizationState(resource.data) == 'archived'
+        && organizationState(request.resource.data) == 'active'
+        && request.resource.data.archived == false
+        && request.resource.data.archive_lock_at == null
+        && request.resource.data.archive_lock_by == null
+        && request.resource.data.archived_at == null
+        && request.resource.data.archived_by == null
+        && request.resource.data.verified == false
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'lifecycle_state',
+          'archived',
+          'archive_lock_at',
+          'archive_lock_by',
+          'archived_at',
+          'archived_by',
+          'verified',
+          'updated_at'
+        ]);
+    }
+
+    function bookingUpdateDoesNotCreateArchiveBlocker(orgId) {
+      let organizationPath = /databases/$(database)/documents/organizations/$(orgId);
+      return organizationState(get(organizationPath).data) != 'archiving'
+        || (!(request.resource.data.status in ['pending', 'confirmed'])
+          && !(request.resource.data.type == 'bed'
+            && request.resource.data.status == 'admitted'));
+    }
+
+    function isValidPersonName(value) {
+      return value is string
+        && value.size() >= 2
+        && value.size() <= 80
+        && value.matches('.*[^ ].*');
+    }
+
+    function isValidPhone(value) {
+      return value is string
+        && value.matches('^[+]?[0-9]{10,15}$');
+    }
+
+    function isCanonicalBedDocument(bedId, type) {
+      return (bedId == 'general' && type == 'General')
+        || (bedId == 'icu' && type == 'ICU')
+        || (bedId == 'nicu' && type == 'NICU');
+    }
+
+    function isCanonicalBloodDocument(stockId, type) {
+      return (stockId == 'a_positive' && type == 'A+')
+        || (stockId == 'a_negative' && type == 'A-')
+        || (stockId == 'b_positive' && type == 'B+')
+        || (stockId == 'b_negative' && type == 'B-')
+        || (stockId == 'ab_positive' && type == 'AB+')
+        || (stockId == 'ab_negative' && type == 'AB-')
+        || (stockId == 'o_positive' && type == 'O+')
+        || (stockId == 'o_negative' && type == 'O-');
+    }
+
+    function isValidBedInventory(data) {
+      return data.type in ['General', 'ICU', 'NICU']
+        && data.total_beds is int
+        && data.total_beds > 0
+        && data.held_beds is int
+        && data.held_beds >= 0
+        && data.admitted_beds is int
+        && data.admitted_beds >= 0
+        && data.held_beds + data.admitted_beds <= data.total_beds
+        && data.price_per_day is number
+        && data.price_per_day >= 0
+        && data.hold_duration_minutes is int
+        && data.hold_duration_minutes > 0
+        && data.hold_duration_minutes <= 1440;
+    }
+
+    function isValidBloodInventory(data) {
+      return data.blood_type in ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']
+        && data.total_units is int
+        && data.total_units >= 0
+        && data.held_units is int
+        && data.held_units >= 0
+        && data.issued_units is int
+        && data.issued_units >= 0
+        && data.held_units + data.issued_units <= data.total_units
+        && data.processing_fee_per_unit is number
+        && data.processing_fee_per_unit >= 0
+        && data.last_updated is timestamp;
+    }
+
+    function hasServerHold(data) {
+      return data.keys().hasAll(['confirmed_at', 'hold_duration_minutes'])
+        && data.confirmed_at is timestamp
+        && data.hold_duration_minutes is int
+        && data.hold_duration_minutes > 0
+        && data.hold_duration_minutes <= 1440;
+    }
+
+    function isHoldActive(data) {
+      return (hasServerHold(data)
+          && data.confirmed_at
+            + duration.value(data.hold_duration_minutes, 'm') > request.time)
+        || (data.held_until is timestamp && data.held_until > request.time);
+    }
+
+    function isHoldExpired(data) {
+      return (hasServerHold(data)
+          && data.confirmed_at
+            + duration.value(data.hold_duration_minutes, 'm') <= request.time)
+        || (data.held_until is timestamp && data.held_until <= request.time);
+    }
+
+    function isSuperAdmin() {
+      return isActiveUser() && getUserData().role == 'super_admin';
+    }
+
+    function isAssignedAdmin(orgId, roles) {
+      return isActiveUser()
+        && isOrganizationManageable(orgId)
         && getUserData().organization_id == orgId
-        && getUserData().role in ['hospital_admin', 'blood_bank_admin', 'ambulance_admin'];
+        && getUserData().role in roles;
+    }
+
+    function isBedAdmin(orgId) {
+      return isAssignedAdmin(orgId, ['bed_admin', 'hospital_admin']);
+    }
+
+    function isTestAdmin(orgId) {
+      return isAssignedAdmin(orgId, ['test_admin', 'hospital_admin']);
+    }
+
+    function isBloodBankAdmin(orgId) {
+      return isAssignedAdmin(orgId, ['blood_bank_admin']);
+    }
+
+    function isAmbulanceAdmin(orgId) {
+      return isAssignedAdmin(orgId, ['ambulance_admin']);
+    }
+
+    function canManageBooking(orgId, type) {
+      return (type == 'bed' && isBedAdmin(orgId))
+        || (type == 'blood' && isBloodBankAdmin(orgId))
+        || (type == 'ambulance' && isAmbulanceAdmin(orgId))
+        || (type == 'test' && isTestAdmin(orgId));
     }
 
     function isProfileComplete() {
-      return isAuthenticated() && getUserData().profile_complete == true;
+      return isActiveUser()
+        && getUserData().profile_complete == true
+        && isValidPersonName(getUserData().name)
+        && isValidPhone(getUserData().phone);
     }
 
-    // Organizations - public read, super admin write
+    function isValidBookingBase(expectedOrganizationType) {
+      let data = request.resource.data;
+      let organizationPath = /databases/$(database)/documents/organizations/$(data.organization_id);
+      return data.keys().hasAll([
+          'type',
+          'organization_id',
+          'organization_name',
+          'user_id',
+          'patient_name',
+          'contact_number',
+          'status',
+          'held_until',
+          'estimated_price',
+          'created_at'
+        ])
+        && data.organization_id is string
+        && data.organization_id.size() > 0
+        && data.organization_name is string
+        && data.organization_name.size() >= 2
+        && data.organization_name.size() <= 120
+        && data.user_id == request.auth.uid
+        && isValidPersonName(data.patient_name)
+        && isValidPhone(data.contact_number)
+        && data.status == 'pending'
+        && data.held_until == null
+        && data.estimated_price is number
+        && data.estimated_price >= 0
+        && data.created_at == request.time
+        && exists(organizationPath)
+        && isOrganizationActive(data.organization_id)
+        && get(organizationPath).data.verified == true
+        && get(organizationPath).data.type == expectedOrganizationType
+        && get(organizationPath).data.name == data.organization_name;
+    }
+
+    function hasValidPrescriptionDocument(requestId) {
+      let prescription = getAfter(
+        /databases/$(database)/documents/prescription_documents/$(requestId)
+      ).data;
+      return request.resource.data.prescription_document_id == requestId
+        && prescription.keys().hasOnly([
+          'booking_id',
+          'user_id',
+          'organization_id',
+          'booking_type',
+          'content_type',
+          'image_bytes',
+          'created_at'
+        ])
+        && prescription.booking_id == requestId
+        && prescription.user_id == request.auth.uid
+        && prescription.organization_id
+          == request.resource.data.organization_id
+        && prescription.booking_type == request.resource.data.type
+        && prescription.content_type in ['image/jpeg', 'image/png', 'image/webp']
+        && prescription.image_bytes is bytes
+        && prescription.image_bytes.size() > 0
+        && prescription.image_bytes.size() <= 700 * 1024
+        && prescription.created_at == request.time;
+    }
+
+    function usesPrescriptionAsset() {
+      return request.resource.data.get('prescription_asset_id', null) != null;
+    }
+
+    function usesPrescriptionDocument() {
+      return request.resource.data.get('prescription_document_id', null) != null;
+    }
+
+    // New Cloudinary-backed flow: the image lives in Cloudinary and the metadata
+    // doc under prescription_assets/{requestId} is written by the trusted backend
+    // (Admin SDK) BEFORE the booking is created. The booking only has to reference
+    // an existing, matching asset owned by the same user.
+    function hasValidPrescriptionAsset(requestId) {
+      let assetPath = /databases/$(database)/documents/prescription_assets/$(requestId);
+      return request.resource.data.get('prescription_asset_id', null) == requestId
+        && request.resource.data.get('prescription_document_id', null) == null
+        && exists(assetPath)
+        && get(assetPath).data.user_id == request.auth.uid
+        && get(assetPath).data.organization_id == request.resource.data.organization_id
+        && get(assetPath).data.booking_type == request.resource.data.type;
+    }
+
+    // A booking must carry exactly one prescription reference: either the new
+    // Cloudinary asset id, or the legacy inline Firestore blob document.
+    function hasValidPrescription(requestId) {
+      return usesPrescriptionAsset()
+        ? (!usesPrescriptionDocument() && hasValidPrescriptionAsset(requestId))
+        : (usesPrescriptionDocument() && hasValidPrescriptionDocument(requestId));
+    }
+
+    function isValidCoordinatePair(latitude, longitude) {
+      return (latitude == null && longitude == null)
+        || (latitude is number
+          && longitude is number
+          && latitude >= -90
+          && latitude <= 90
+          && longitude >= -180
+          && longitude <= 180);
+    }
+
+    function isValidBedBookingCreate(requestId) {
+      let data = request.resource.data;
+      let bedPath = /databases/$(database)/documents/organizations/$(data.organization_id)/beds/$(data.bed_id);
+      return data.keys().hasOnly([
+          'type',
+          'organization_id',
+          'organization_name',
+          'user_id',
+          'patient_name',
+          'contact_number',
+          'status',
+          'held_until',
+          'estimated_price',
+          'created_at',
+          'bed_id',
+          'bed_type',
+          'prescription_document_id',
+          'prescription_asset_id'
+        ])
+        && isValidBookingBase('hospital')
+        && data.type == 'bed'
+        && data.bed_id is string
+        && data.bed_id.size() > 0
+        && data.bed_type is string
+        && data.bed_type.size() > 0
+        && data.bed_type.size() <= 80
+        && hasValidPrescription(requestId)
+        && exists(bedPath)
+        && get(bedPath).data.type == data.bed_type
+        && get(bedPath).data.price_per_day is number
+        && get(bedPath).data.price_per_day == data.estimated_price
+        && get(bedPath).data.total_beds is int
+        && get(bedPath).data.held_beds is int
+        && get(bedPath).data.admitted_beds is int
+        && get(bedPath).data.total_beds
+          - get(bedPath).data.held_beds
+          - get(bedPath).data.admitted_beds > 0;
+    }
+
+    function isValidBloodBookingCreate(requestId) {
+      let data = request.resource.data;
+      let stockPath = /databases/$(database)/documents/organizations/$(data.organization_id)/blood_stock/$(data.blood_stock_id);
+      let hospitalPath = /databases/$(database)/documents/organizations/$(data.hospital_id);
+      return data.keys().hasOnly([
+          'type',
+          'organization_id',
+          'organization_name',
+          'user_id',
+          'patient_name',
+          'contact_number',
+          'status',
+          'held_until',
+          'estimated_price',
+          'created_at',
+          'blood_stock_id',
+          'blood_type',
+          'units_needed',
+          'hospital_id',
+          'hospital_name',
+          'prescribing_doctor',
+          'prescription_document_id',
+          'prescription_asset_id'
+        ])
+        && isValidBookingBase('blood_bank')
+        && data.type == 'blood'
+        && data.blood_stock_id is string
+        && data.blood_stock_id.size() > 0
+        && data.blood_type in ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']
+        && data.units_needed is int
+        && data.units_needed > 0
+        && data.hospital_id is string
+        && data.hospital_id.size() > 0
+        && data.hospital_name is string
+        && data.hospital_name.size() >= 2
+        && data.hospital_name.size() <= 120
+        && data.prescribing_doctor is string
+        && data.prescribing_doctor.size() >= 2
+        && data.prescribing_doctor.size() <= 120
+        && hasValidPrescription(requestId)
+        && exists(stockPath)
+        && get(stockPath).data.blood_type == data.blood_type
+        && get(stockPath).data.processing_fee_per_unit is number
+        && data.estimated_price == get(stockPath).data.processing_fee_per_unit * data.units_needed
+        && get(stockPath).data.total_units is int
+        && get(stockPath).data.held_units is int
+        && get(stockPath).data.issued_units is int
+        && data.units_needed <= get(stockPath).data.total_units
+          - get(stockPath).data.held_units
+          - get(stockPath).data.issued_units
+        && exists(hospitalPath)
+        && get(hospitalPath).data.type == 'hospital'
+        && isOrganizationActive(data.hospital_id)
+        && get(hospitalPath).data.verified == true
+        && get(hospitalPath).data.name == data.hospital_name;
+    }
+
+    function isValidAmbulanceDestination(data) {
+      return (data.destination_hospital_id == null
+          && data.destination_address == null
+          && data.destination_lat == null
+          && data.destination_lng == null)
+        || (data.destination_hospital_id is string
+          && data.destination_hospital_id.size() > 0
+          && data.destination_address is string
+          && exists(/databases/$(database)/documents/organizations/$(data.destination_hospital_id))
+          && isOrganizationActive(data.destination_hospital_id)
+          && get(/databases/$(database)/documents/organizations/$(data.destination_hospital_id)).data.type == 'hospital'
+          && get(/databases/$(database)/documents/organizations/$(data.destination_hospital_id)).data.verified == true
+          && get(/databases/$(database)/documents/organizations/$(data.destination_hospital_id)).data.name == data.destination_address
+          && get(/databases/$(database)/documents/organizations/$(data.destination_hospital_id)).data.latitude == data.destination_lat
+          && get(/databases/$(database)/documents/organizations/$(data.destination_hospital_id)).data.longitude == data.destination_lng);
+    }
+
+    function isValidAmbulanceBookingCreate(requestId) {
+      let data = request.resource.data;
+      let ambulancePath = /databases/$(database)/documents/organizations/$(data.organization_id)/ambulances/$(data.ambulance_reference_id);
+      return data.keys().hasOnly([
+          'type',
+          'organization_id',
+          'organization_name',
+          'user_id',
+          'patient_name',
+          'contact_number',
+          'status',
+          'held_until',
+          'estimated_price',
+          'created_at',
+          'pickup_lat',
+          'pickup_lng',
+          'destination_lat',
+          'destination_lng',
+          'ambulance_type',
+          'ambulance_reference_id',
+          'ambulance_id',
+          'patient_condition_notes',
+          'pickup_address',
+          'destination_hospital_id',
+          'destination_address',
+          'prescription_document_id',
+          'prescription_asset_id'
+        ])
+        && isValidBookingBase('ambulance_operator')
+        && data.type == 'ambulance'
+        && data.ambulance_reference_id is string
+        && data.ambulance_reference_id.size() > 0
+        && data.ambulance_type is string
+        && data.ambulance_type.size() > 0
+        && data.ambulance_type.size() <= 80
+        && data.ambulance_id == null
+        && data.pickup_address is string
+        && data.pickup_address.size() >= 2
+        && data.pickup_address.size() <= 500
+        && (data.patient_condition_notes == null
+          || (data.patient_condition_notes is string
+            && data.patient_condition_notes.size() <= 1000))
+        && isValidCoordinatePair(data.pickup_lat, data.pickup_lng)
+        && isValidAmbulanceDestination(data)
+        && hasValidPrescription(requestId)
+        && exists(ambulancePath)
+        && get(ambulancePath).data.type == data.ambulance_type
+        && get(ambulancePath).data.status == 'available'
+        && get(ambulancePath).data.base_fare is number
+        && get(ambulancePath).data.base_fare == data.estimated_price;
+    }
+
+    function isValidPrescriptionCreate(documentId) {
+      let booking = getAfter(
+        /databases/$(database)/documents/booking_requests/$(documentId)
+      ).data;
+      return request.resource.data.keys().hasOnly([
+          'booking_id',
+          'user_id',
+          'organization_id',
+          'booking_type',
+          'content_type',
+          'image_bytes',
+          'created_at'
+        ])
+        && request.resource.data.booking_id == documentId
+        && request.resource.data.user_id == request.auth.uid
+        && request.resource.data.organization_id == booking.organization_id
+        && request.resource.data.booking_type == booking.type
+        && request.resource.data.content_type
+          in ['image/jpeg', 'image/png', 'image/webp']
+        && request.resource.data.image_bytes is bytes
+        && request.resource.data.image_bytes.size() > 0
+        && request.resource.data.image_bytes.size() <= 700 * 1024
+        && request.resource.data.created_at == request.time
+        && booking.user_id == request.auth.uid
+        && booking.prescription_document_id == documentId
+        && booking.status == 'pending';
+    }
+
+    function prescriptionBookingIsTerminal(documentId) {
+      let booking = get(
+        /databases/$(database)/documents/booking_requests/$(documentId)
+      ).data;
+      return booking.status in ['rejected', 'expired', 'discharged']
+        || (booking.type != 'bed' && booking.status == 'admitted');
+    }
+
+    function prescriptionIsDeletedWithBooking() {
+      return !resource.data.keys().hasAny(['prescription_document_id'])
+        || resource.data.prescription_document_id == null
+        || !existsAfter(
+          /databases/$(database)/documents/prescription_documents/$(resource.data.prescription_document_id)
+        );
+    }
+
+    function isCurrentQueueDay(data) {
+      let dhakaTime = request.time + duration.value(6, 'h');
+      return data.queue_year == dhakaTime.year()
+        && data.queue_month == dhakaTime.month()
+        && data.queue_day == dhakaTime.day();
+    }
+
+    function isPastQueueDay(data) {
+      let dhakaTime = request.time + duration.value(6, 'h');
+      return data.queue_year < dhakaTime.year()
+        || (data.queue_year == dhakaTime.year()
+          && data.queue_month < dhakaTime.month())
+        || (data.queue_year == dhakaTime.year()
+          && data.queue_month == dhakaTime.month()
+          && data.queue_day < dhakaTime.day());
+    }
+
+    function diagnosticQueueDayId(data) {
+      return string(data.queue_year) + '_'
+        + string(data.queue_month) + '_'
+        + string(data.queue_day) + '_'
+        + data.test_id;
+    }
+
+    function currentDailyCapacityExists(orgId, data) {
+      return exists(
+        /databases/$(database)/documents/organizations/$(orgId)/test_daily_capacity/$(diagnosticQueueDayId(data))
+      );
+    }
+
+    function queueSlotMinutes(orgId, testId) {
+      let test = get(/databases/$(database)/documents/organizations/$(orgId)/tests/$(testId)).data;
+      return test.keys().hasAny(['slot_duration_minutes'])
+        ? test.slot_duration_minutes
+        : 15;
+    }
+
+    function testDailyCapacity(orgId, testId) {
+      let test = get(/databases/$(database)/documents/organizations/$(orgId)/tests/$(testId)).data;
+      return test.keys().hasAny(['daily_capacity']) ? test.daily_capacity : 100;
+    }
+
+    function testAcceptingSerials(orgId, testId) {
+      let test = get(/databases/$(database)/documents/organizations/$(orgId)/tests/$(testId)).data;
+      return test.keys().hasAny(['is_available']) ? test.is_available == true : true;
+    }
+
+    function isValidCatalogOffering() {
+      return request.resource.data.catalog_test_id is string
+        && exists(/databases/$(database)/documents/diagnostic_test_catalog/$(request.resource.data.catalog_test_id))
+        && get(/databases/$(database)/documents/diagnostic_test_catalog/$(request.resource.data.catalog_test_id)).data.active == true
+        && request.resource.data.test_name == get(/databases/$(database)/documents/diagnostic_test_catalog/$(request.resource.data.catalog_test_id)).data.name;
+    }
+
+    function isValidTestBookingCreate(requestId) {
+      let counter = getAfter(/databases/$(database)/documents/organizations/$(request.resource.data.organization_id)/test_queue_counters/$(request.resource.data.queue_counter_id)).data;
+      let test = get(/databases/$(database)/documents/organizations/$(request.resource.data.organization_id)/tests/$(request.resource.data.test_id)).data;
+      let organization = get(/databases/$(database)/documents/organizations/$(request.resource.data.organization_id)).data;
+      let dailyId = string(request.resource.data.queue_year) + '_'
+        + string(request.resource.data.queue_month) + '_'
+        + string(request.resource.data.queue_day) + '_'
+        + request.resource.data.test_id;
+      let daily = getAfter(/databases/$(database)/documents/organizations/$(request.resource.data.organization_id)/test_daily_capacity/$(dailyId)).data;
+      let claimId = request.resource.data.organization_id + '_' + dailyId;
+      let claim = getAfter(/databases/$(database)/documents/users/$(request.auth.uid)/diagnostic_serial_claims/$(claimId)).data;
+      return request.resource.data.test_id is string
+        && request.resource.data.test_name is string
+        && request.resource.data.test_name == test.test_name
+        && request.resource.data.estimated_price == test.price
+        && request.resource.data.organization_id is string
+        && request.resource.data.organization_name == organization.name
+        && organization.verified == true
+        && isOrganizationActive(request.resource.data.organization_id)
+        && isValidPersonName(request.resource.data.patient_name)
+        && isValidPhone(request.resource.data.contact_number)
+        && request.resource.data.created_at == request.time
+        && request.resource.data.called_at == null
+        && request.resource.data.completed_at == null
+        && request.resource.data.serial_number is int
+        && request.resource.data.serial_number > 0
+        && request.resource.data.queue_date is string
+        && request.resource.data.queue_year is int
+        && request.resource.data.queue_month is int
+        && request.resource.data.queue_day is int
+        && isCurrentQueueDay(request.resource.data)
+        && request.resource.data.queue_counter_id is string
+        && request.resource.data.queue_counter_id == request.resource.data.test_id
+        && request.resource.data.estimated_arrival_time is timestamp
+        && exists(/databases/$(database)/documents/organizations/$(request.resource.data.organization_id)/tests/$(request.resource.data.test_id))
+        && testAcceptingSerials(request.resource.data.organization_id, request.resource.data.test_id)
+        && counter.test_id == request.resource.data.test_id
+        && counter.last_serial == request.resource.data.serial_number
+        && counter.last_estimated_arrival == request.resource.data.estimated_arrival_time
+        && counter.last_request_id == requestId
+        && daily.test_id == request.resource.data.test_id
+        && daily.queue_year == request.resource.data.queue_year
+        && daily.queue_month == request.resource.data.queue_month
+        && daily.queue_day == request.resource.data.queue_day
+        && daily.capacity == testDailyCapacity(request.resource.data.organization_id, request.resource.data.test_id)
+        && daily.used is int
+        && daily.used > 0
+        && daily.remaining == daily.capacity - daily.used
+        && daily.remaining >= 0
+        && daily.last_request_id == requestId
+        && claim.keys().hasOnly([
+          'organization_id',
+          'test_id',
+          'user_id',
+          'booking_id',
+          'queue_year',
+          'queue_month',
+          'queue_day',
+          'created_at'
+        ])
+        && claim.organization_id == request.resource.data.organization_id
+        && claim.test_id == request.resource.data.test_id
+        && claim.user_id == request.auth.uid
+        && claim.booking_id == requestId
+        && claim.queue_year == request.resource.data.queue_year
+        && claim.queue_month == request.resource.data.queue_month
+        && claim.queue_day == request.resource.data.queue_day
+        && claim.created_at == request.time;
+    }
+
+    function isValidTestBookingUpdate(requestId) {
+      let counter = getAfter(/databases/$(database)/documents/organizations/$(resource.data.organization_id)/test_queue_counters/$(resource.data.queue_counter_id)).data;
+      return resource.data.type == 'test'
+        && isCurrentQueueDay(resource.data) && (
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'called_at', 'completed_at'])
+        && (
+          (resource.data.status == 'pending'
+            && request.resource.data.status == 'confirmed'
+            && request.resource.data.called_at == request.time
+            && counter.active_request_id == requestId
+            && counter.last_called_serial == resource.data.serial_number
+            && counter.last_queue_action_id == requestId)
+          || (resource.data.status == 'confirmed'
+            && request.resource.data.status == 'admitted'
+            && request.resource.data.completed_at == request.time
+            && counter.active_request_id == null
+            && counter.last_called_serial == resource.data.serial_number
+            && counter.last_queue_action_id == requestId)
+          || (resource.data.status == 'pending'
+            && request.resource.data.status == 'rejected'
+            && counter.active_request_id == null
+            && counter.last_called_serial == resource.data.serial_number
+            && counter.last_queue_action_id == requestId)
+          || (resource.data.status == 'confirmed'
+            && request.resource.data.status == 'rejected'
+            && counter.active_request_id == null
+            && counter.last_called_serial == resource.data.serial_number
+            && counter.last_queue_action_id == requestId)
+        )
+      );
+    }
+
+    function isValidTestExpiry() {
+      return resource.data.type == 'test'
+        && resource.data.status in ['pending', 'confirmed']
+        && isPastQueueDay(resource.data)
+        && request.resource.data.status == 'expired'
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status']);
+    }
+
+    function isValidBedConfirmation() {
+      let bedPath = /databases/$(database)/documents/organizations/$(resource.data.organization_id)/beds/$(request.resource.data.bed_id);
+      let before = get(bedPath).data;
+      let after = getAfter(bedPath).data;
+      return resource.data.type == 'bed'
+        && resource.data.status == 'pending'
+        && request.resource.data.status == 'confirmed'
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'held_until', 'confirmed_at', 'hold_duration_minutes', 'bed_id'])
+        && request.resource.data.bed_id is string
+        && (!resource.data.keys().hasAny(['bed_id'])
+          || resource.data.bed_id == null
+          || resource.data.bed_id == request.resource.data.bed_id)
+        && before.hold_duration_minutes is int
+        && before.hold_duration_minutes > 0
+        && before.hold_duration_minutes <= 1440
+        && (
+          (request.resource.data.held_until == null
+            && request.resource.data.confirmed_at == request.time
+            && request.resource.data.hold_duration_minutes
+              == before.hold_duration_minutes)
+          || (request.resource.data.held_until is timestamp
+            && !request.resource.data.keys().hasAny(['confirmed_at', 'hold_duration_minutes'])
+            && request.resource.data.held_until > request.time
+            && request.resource.data.held_until
+              <= request.time + duration.value(before.hold_duration_minutes, 'm'))
+        )
+        && before.type == resource.data.bed_type
+        && before.held_beds is int
+        && before.total_beds is int
+        && before.admitted_beds is int
+        && after.diff(before).affectedKeys().hasOnly(['held_beds'])
+        && after.held_beds == before.held_beds + 1
+        && after.held_beds + before.admitted_beds <= before.total_beds;
+    }
+
+    function isValidBloodConfirmation() {
+      let stockPath = /databases/$(database)/documents/organizations/$(resource.data.organization_id)/blood_stock/$(request.resource.data.blood_stock_id);
+      let before = get(stockPath).data;
+      let after = getAfter(stockPath).data;
+      return resource.data.type == 'blood'
+        && resource.data.status == 'pending'
+        && request.resource.data.status == 'confirmed'
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'held_until', 'confirmed_at', 'hold_duration_minutes', 'blood_stock_id'])
+        && request.resource.data.blood_stock_id is string
+        && (!resource.data.keys().hasAny(['blood_stock_id'])
+          || resource.data.blood_stock_id == null
+          || resource.data.blood_stock_id == request.resource.data.blood_stock_id)
+        && resource.data.units_needed is int
+        && resource.data.units_needed > 0
+        && (
+          (request.resource.data.held_until == null
+            && request.resource.data.confirmed_at == request.time
+            && request.resource.data.hold_duration_minutes == 60)
+          || (request.resource.data.held_until is timestamp
+            && !request.resource.data.keys().hasAny(['confirmed_at', 'hold_duration_minutes'])
+            && request.resource.data.held_until > request.time
+            && request.resource.data.held_until
+              <= request.time + duration.value(60, 'm'))
+        )
+        && before.blood_type == resource.data.blood_type
+        && before.held_units is int
+        && before.total_units is int
+        && before.issued_units is int
+        && after.diff(before).affectedKeys().hasOnly(['held_units'])
+        && after.held_units == before.held_units + resource.data.units_needed
+        && after.held_units + before.issued_units <= before.total_units;
+    }
+
+    function isValidAmbulanceConfirmation() {
+      let ambulancePath = /databases/$(database)/documents/organizations/$(resource.data.organization_id)/ambulances/$(request.resource.data.ambulance_id);
+      let before = get(ambulancePath).data;
+      let after = getAfter(ambulancePath).data;
+      return resource.data.type == 'ambulance'
+        && resource.data.status == 'pending'
+        && request.resource.data.status == 'confirmed'
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'held_until', 'confirmed_at', 'hold_duration_minutes', 'ambulance_id'])
+        && request.resource.data.ambulance_id is string
+        && (
+          (request.resource.data.held_until == null
+            && request.resource.data.confirmed_at == request.time
+            && request.resource.data.hold_duration_minutes == 30)
+          || (request.resource.data.held_until is timestamp
+            && !request.resource.data.keys().hasAny(['confirmed_at', 'hold_duration_minutes'])
+            && request.resource.data.held_until > request.time
+            && request.resource.data.held_until
+              <= request.time + duration.value(30, 'm'))
+        )
+        && before.type == resource.data.ambulance_type
+        && before.base_fare == resource.data.estimated_price
+        && before.status == 'available'
+        && after.diff(before).affectedKeys().hasOnly(['status'])
+        && after.status == 'busy';
+    }
+
+    function isValidBedAdmission() {
+      let bedPath = /databases/$(database)/documents/organizations/$(resource.data.organization_id)/beds/$(request.resource.data.bed_id);
+      let before = get(bedPath).data;
+      let after = getAfter(bedPath).data;
+      return resource.data.type == 'bed'
+        && resource.data.status == 'confirmed'
+        && isHoldActive(resource.data)
+        && request.resource.data.status == 'admitted'
+        && request.resource.data.held_until == null
+        && (!request.resource.data.keys().hasAny(['admitted_at'])
+          || request.resource.data.admitted_at == request.time)
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'held_until', 'bed_id', 'admitted_at'])
+        && request.resource.data.bed_id is string
+        && (!resource.data.keys().hasAny(['bed_id'])
+          || resource.data.bed_id == null
+          || resource.data.bed_id == request.resource.data.bed_id)
+        && before.type == resource.data.bed_type
+        && before.held_beds is int
+        && before.admitted_beds is int
+        && before.held_beds > 0
+        && after.diff(before).affectedKeys()
+          .hasOnly(['held_beds', 'admitted_beds'])
+        && after.held_beds == before.held_beds - 1
+        && after.admitted_beds == before.admitted_beds + 1;
+    }
+
+    function isValidBedDischarge() {
+      let bedPath = /databases/$(database)/documents/organizations/$(resource.data.organization_id)/beds/$(resource.data.bed_id);
+      let before = get(bedPath).data;
+      let after = getAfter(bedPath).data;
+      return resource.data.type == 'bed'
+        && resource.data.status == 'admitted'
+        && resource.data.bed_id is string
+        && request.resource.data.status == 'discharged'
+        && request.resource.data.discharged_at == request.time
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'discharged_at'])
+        && before.admitted_beds is int
+        && before.admitted_beds > 0
+        && after.diff(before).affectedKeys().hasOnly(['admitted_beds'])
+        && after.admitted_beds == before.admitted_beds - 1;
+    }
+
+    function isValidBloodAdmission() {
+      let stockPath = /databases/$(database)/documents/organizations/$(resource.data.organization_id)/blood_stock/$(request.resource.data.blood_stock_id);
+      let before = get(stockPath).data;
+      let after = getAfter(stockPath).data;
+      return resource.data.type == 'blood'
+        && resource.data.status == 'confirmed'
+        && isHoldActive(resource.data)
+        && request.resource.data.status == 'admitted'
+        && request.resource.data.held_until == null
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'held_until', 'blood_stock_id'])
+        && request.resource.data.blood_stock_id is string
+        && (!resource.data.keys().hasAny(['blood_stock_id'])
+          || resource.data.blood_stock_id == null
+          || resource.data.blood_stock_id == request.resource.data.blood_stock_id)
+        && resource.data.units_needed is int
+        && resource.data.units_needed > 0
+        && before.blood_type == resource.data.blood_type
+        && before.held_units is int
+        && before.issued_units is int
+        && before.held_units >= resource.data.units_needed
+        && after.diff(before).affectedKeys()
+          .hasOnly(['held_units', 'issued_units'])
+        && after.held_units == before.held_units - resource.data.units_needed
+        && after.issued_units == before.issued_units + resource.data.units_needed;
+    }
+
+    function isValidAmbulanceAdmission() {
+      let ambulancePath = /databases/$(database)/documents/organizations/$(resource.data.organization_id)/ambulances/$(resource.data.ambulance_id);
+      let before = get(ambulancePath).data;
+      let after = getAfter(ambulancePath).data;
+      return resource.data.type == 'ambulance'
+        && resource.data.status == 'confirmed'
+        && isHoldActive(resource.data)
+        && request.resource.data.status == 'admitted'
+        && request.resource.data.held_until == null
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'held_until'])
+        && resource.data.ambulance_id is string
+        && before.type == resource.data.ambulance_type
+        && before.status == 'busy'
+        && after.diff(before).affectedKeys().hasOnly(['status'])
+        && after.status == 'available';
+    }
+
+    function isValidPendingRejection() {
+      return resource.data.type != 'test'
+        && resource.data.status == 'pending'
+        && request.resource.data.status == 'rejected'
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status']);
+    }
+
+    function isValidBedExpiry(requestId) {
+      let bedPath = /databases/$(database)/documents/organizations/$(resource.data.organization_id)/beds/$(request.resource.data.bed_id);
+      let before = get(bedPath).data;
+      let after = getAfter(bedPath).data;
+      return resource.data.type == 'bed'
+        && resource.data.status == 'confirmed'
+        && isHoldExpired(resource.data)
+        && request.resource.data.status == 'expired'
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status'])
+        && resource.data.bed_id is string
+        && request.resource.data.bed_id == resource.data.bed_id
+        && before.type == resource.data.bed_type
+        && before.held_beds is int
+        && before.held_beds > 0
+        && after.diff(before).affectedKeys()
+          .hasOnly(['held_beds', 'last_expired_booking_id'])
+        && after.held_beds == before.held_beds - 1
+        && after.last_expired_booking_id == requestId;
+    }
+
+    function isValidBloodExpiry(requestId) {
+      let stockPath = /databases/$(database)/documents/organizations/$(resource.data.organization_id)/blood_stock/$(request.resource.data.blood_stock_id);
+      let before = get(stockPath).data;
+      let after = getAfter(stockPath).data;
+      return resource.data.type == 'blood'
+        && resource.data.status == 'confirmed'
+        && isHoldExpired(resource.data)
+        && request.resource.data.status == 'expired'
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status'])
+        && resource.data.blood_stock_id is string
+        && request.resource.data.blood_stock_id
+          == resource.data.blood_stock_id
+        && resource.data.units_needed is int
+        && resource.data.units_needed > 0
+        && before.blood_type == resource.data.blood_type
+        && before.held_units is int
+        && before.held_units >= resource.data.units_needed
+        && after.diff(before).affectedKeys()
+          .hasOnly(['held_units', 'last_expired_booking_id'])
+        && after.held_units == before.held_units - resource.data.units_needed
+        && after.last_expired_booking_id == requestId;
+    }
+
+    function isValidAmbulanceExpiry(requestId) {
+      let ambulancePath = /databases/$(database)/documents/organizations/$(resource.data.organization_id)/ambulances/$(resource.data.ambulance_id);
+      let before = get(ambulancePath).data;
+      let after = getAfter(ambulancePath).data;
+      return resource.data.type == 'ambulance'
+        && resource.data.status == 'confirmed'
+        && isHoldExpired(resource.data)
+        && resource.data.ambulance_id is string
+        && request.resource.data.status == 'expired'
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status'])
+        && before.type == resource.data.ambulance_type
+        && before.status == 'busy'
+        && after.diff(before).affectedKeys()
+          .hasOnly(['status', 'last_expired_booking_id'])
+        && after.status == 'available'
+        && after.last_expired_booking_id == requestId;
+    }
+
+    function isValidNonTestExpiry(requestId) {
+      return (resource.data.type == 'bed' && isValidBedExpiry(requestId))
+        || (resource.data.type == 'blood' && isValidBloodExpiry(requestId))
+        || (resource.data.type == 'ambulance'
+          && isValidAmbulanceExpiry(requestId));
+    }
+
+    function isValidNonTestAdminUpdate(requestId) {
+      return (resource.data.type == 'bed'
+          && (isValidPendingRejection()
+            || isValidBedExpiry(requestId)
+             || isValidBedConfirmation()
+             || isValidBedAdmission()
+             || isValidBedDischarge()))
+        || (resource.data.type == 'blood'
+          && (isValidPendingRejection()
+            || isValidBloodExpiry(requestId)
+            || isValidBloodConfirmation()
+            || isValidBloodAdmission()))
+        || (resource.data.type == 'ambulance'
+          && (isValidPendingRejection()
+            || isValidAmbulanceConfirmation()
+            || isValidAmbulanceExpiry(requestId)
+            || isValidAmbulanceAdmission()));
+    }
+
+    function queueCounterMatchesBooking(orgId, counterId) {
+      let booking = getAfter(/databases/$(database)/documents/booking_requests/$(request.resource.data.last_request_id)).data;
+      return booking.type == 'test'
+        && booking.user_id == request.auth.uid
+        && booking.organization_id == orgId
+        && booking.test_id == request.resource.data.test_id
+        && booking.queue_counter_id == counterId
+        && counterId == request.resource.data.test_id
+        && booking.queue_year == request.resource.data.queue_year
+        && booking.queue_month == request.resource.data.queue_month
+        && booking.queue_day == request.resource.data.queue_day
+        && booking.serial_number == request.resource.data.last_serial
+        && booking.estimated_arrival_time == request.resource.data.last_estimated_arrival
+        && booking.status == 'pending';
+    }
+
+    function dailyCapacityMatchesBooking(orgId, dailyId) {
+      let booking = getAfter(/databases/$(database)/documents/booking_requests/$(request.resource.data.last_request_id)).data;
+      return booking.type == 'test'
+        && booking.user_id == request.auth.uid
+        && booking.organization_id == orgId
+        && booking.test_id == request.resource.data.test_id
+        && booking.queue_year == request.resource.data.queue_year
+        && booking.queue_month == request.resource.data.queue_month
+        && booking.queue_day == request.resource.data.queue_day
+        && dailyId == string(request.resource.data.queue_year) + '_'
+          + string(request.resource.data.queue_month) + '_'
+          + string(request.resource.data.queue_day) + '_'
+          + request.resource.data.test_id
+        && booking.status == 'pending';
+    }
+
+    function validAdminCounterUpdate(orgId, counterId) {
+      let action = getAfter(/databases/$(database)/documents/booking_requests/$(request.resource.data.last_queue_action_id)).data;
+      return request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['active_request_id', 'last_called_serial', 'last_queue_action_id'])
+        && action.type == 'test'
+        && action.organization_id == orgId
+        && action.queue_counter_id == counterId
+        && isCurrentQueueDay(action)
+        && action.serial_number == request.resource.data.last_called_serial
+        && (
+          (resource.data.active_request_id == null
+            && request.resource.data.active_request_id == request.resource.data.last_queue_action_id
+            && request.resource.data.last_called_serial == resource.data.last_called_serial + 1
+            && action.status == 'confirmed')
+          || (resource.data.active_request_id == null
+            && request.resource.data.active_request_id == null
+            && request.resource.data.last_called_serial == resource.data.last_called_serial + 1
+            && action.status == 'rejected')
+          || (resource.data.active_request_id == request.resource.data.last_queue_action_id
+            && request.resource.data.active_request_id == null
+            && request.resource.data.last_called_serial == resource.data.last_called_serial
+            && action.status in ['admitted', 'rejected'])
+        );
+    }
+
+    function isValidBedExpiryRelease(orgId, bedId) {
+      let bookingId = request.resource.data.last_expired_booking_id;
+      let bookingPath = /databases/$(database)/documents/booking_requests/$(bookingId);
+      let beforeBooking = get(bookingPath).data;
+      let afterBooking = getAfter(bookingPath).data;
+      return beforeBooking.type == 'bed'
+        && beforeBooking.status == 'confirmed'
+        && beforeBooking.user_id == request.auth.uid
+        && beforeBooking.organization_id == orgId
+        && isHoldExpired(beforeBooking)
+        && afterBooking.status == 'expired'
+        && beforeBooking.bed_id is string
+        && beforeBooking.bed_id == bedId
+        && afterBooking.bed_id == beforeBooking.bed_id
+        && afterBooking.diff(beforeBooking).affectedKeys()
+          .hasOnly(['status'])
+        && resource.data.type == beforeBooking.bed_type
+        && resource.data.held_beds is int
+        && resource.data.held_beds > 0
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['held_beds', 'last_expired_booking_id'])
+        && request.resource.data.held_beds == resource.data.held_beds - 1;
+    }
+
+    function isValidBloodExpiryRelease(orgId, stockId) {
+      let bookingId = request.resource.data.last_expired_booking_id;
+      let bookingPath = /databases/$(database)/documents/booking_requests/$(bookingId);
+      let beforeBooking = get(bookingPath).data;
+      let afterBooking = getAfter(bookingPath).data;
+      return beforeBooking.type == 'blood'
+        && beforeBooking.status == 'confirmed'
+        && beforeBooking.user_id == request.auth.uid
+        && beforeBooking.organization_id == orgId
+        && isHoldExpired(beforeBooking)
+        && beforeBooking.units_needed is int
+        && beforeBooking.units_needed > 0
+        && afterBooking.status == 'expired'
+        && beforeBooking.blood_stock_id is string
+        && beforeBooking.blood_stock_id == stockId
+        && afterBooking.blood_stock_id == beforeBooking.blood_stock_id
+        && afterBooking.diff(beforeBooking).affectedKeys()
+          .hasOnly(['status'])
+        && resource.data.blood_type == beforeBooking.blood_type
+        && resource.data.held_units is int
+        && resource.data.held_units >= beforeBooking.units_needed
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['held_units', 'last_expired_booking_id'])
+        && request.resource.data.held_units
+          == resource.data.held_units - beforeBooking.units_needed;
+    }
+
+    function isValidAmbulanceExpiryRelease(orgId, vehicleId) {
+      let bookingId = request.resource.data.last_expired_booking_id;
+      let bookingPath = /databases/$(database)/documents/booking_requests/$(bookingId);
+      let beforeBooking = get(bookingPath).data;
+      let afterBooking = getAfter(bookingPath).data;
+      return beforeBooking.type == 'ambulance'
+        && beforeBooking.status == 'confirmed'
+        && beforeBooking.user_id == request.auth.uid
+        && beforeBooking.organization_id == orgId
+        && beforeBooking.ambulance_id == vehicleId
+        && isHoldExpired(beforeBooking)
+        && afterBooking.status == 'expired'
+        && afterBooking.diff(beforeBooking).affectedKeys().hasOnly(['status'])
+        && resource.data.type == beforeBooking.ambulance_type
+        && resource.data.status == 'busy'
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'last_expired_booking_id'])
+        && request.resource.data.status == 'available';
+    }
+
+    match /server_clock_probes/{ownerId} {
+      allow read: if isAuthenticated() && request.auth.uid == ownerId;
+      allow create, update: if isAuthenticated()
+        && request.auth.uid == ownerId
+        && request.resource.data.keys().hasOnly(['owner_id', 'server_time'])
+        && request.resource.data.owner_id == ownerId
+        && request.resource.data.server_time == request.time;
+      allow delete: if false;
+    }
+
+    // Organizations - public read, super admin lifecycle management
     match /organizations/{orgId} {
       allow read: if true;
-      allow create, update, delete: if isSuperAdmin();
+      allow create: if isSuperAdmin()
+        && organizationDataIsActive(request.resource.data)
+        && (!request.resource.data.keys().hasAny(['archive_lock_at'])
+          || request.resource.data.archive_lock_at == null)
+        && (!request.resource.data.keys().hasAny(['archive_lock_by'])
+          || request.resource.data.archive_lock_by == null)
+        && (!request.resource.data.keys().hasAny(['archived_at'])
+          || request.resource.data.archived_at == null)
+        && (!request.resource.data.keys().hasAny(['archived_by'])
+          || request.resource.data.archived_by == null);
+      allow update: if isSuperAdmin() && (
+        isLifecycleNeutralOrganizationUpdate()
+        || isArchiveLockAcquisition()
+        || isArchiveLockTakeover()
+        || isArchiveLockCancellation()
+        || isArchiveFinalization()
+        || isArchiveRestore()
+      );
+      allow delete: if false;
 
       // Beds subcollection
       match /beds/{bedId} {
         allow read: if true;
-        allow create, update, delete: if isOrgAdmin(orgId) || isSuperAdmin();
+        allow create: if (isBedAdmin(orgId) || isSuperAdmin())
+          && isCanonicalBedDocument(bedId, request.resource.data.type)
+          && isValidBedInventory(request.resource.data);
+        allow update: if ((isBedAdmin(orgId) || isSuperAdmin())
+            && request.resource.data.type == resource.data.type
+            && isValidBedInventory(request.resource.data))
+          || (isActiveUser()
+            && request.resource.data.last_expired_booking_id is string
+            && isValidBedExpiryRelease(orgId, bedId)
+            && isValidBedInventory(request.resource.data));
+        allow delete: if (isBedAdmin(orgId) || isSuperAdmin())
+          && resource.data.held_beds == 0
+          && resource.data.admitted_beds == 0;
       }
 
       // Ambulances subcollection
       match /ambulances/{vehicleId} {
         allow read: if true;
-        allow create, update, delete: if isOrgAdmin(orgId) || isSuperAdmin();
+        allow create, delete: if isAmbulanceAdmin(orgId) || isSuperAdmin();
+        allow update: if isAmbulanceAdmin(orgId)
+          || isSuperAdmin()
+          || (isActiveUser()
+            && request.resource.data.last_expired_booking_id is string
+            && isValidAmbulanceExpiryRelease(orgId, vehicleId));
       }
 
       // Blood stock subcollection
       match /blood_stock/{stockId} {
         allow read: if true;
-        allow create, update, delete: if isOrgAdmin(orgId) || isSuperAdmin();
+        allow create: if (isBloodBankAdmin(orgId) || isSuperAdmin())
+          && isCanonicalBloodDocument(stockId, request.resource.data.blood_type)
+          && isValidBloodInventory(request.resource.data);
+        allow update: if ((isBloodBankAdmin(orgId) || isSuperAdmin())
+            && request.resource.data.blood_type == resource.data.blood_type
+            && isValidBloodInventory(request.resource.data))
+          || (isActiveUser()
+            && request.resource.data.last_expired_booking_id is string
+            && isValidBloodExpiryRelease(orgId, stockId)
+            && isValidBloodInventory(request.resource.data));
+        allow delete: if (isBloodBankAdmin(orgId) || isSuperAdmin())
+          && resource.data.held_units == 0
+          && resource.data.issued_units == 0;
       }
 
       // Tests subcollection
       match /tests/{testId} {
         allow read: if true;
-        allow create, update, delete: if isOrgAdmin(orgId) || isSuperAdmin();
+        allow create, update: if isSuperAdmin()
+          || (isTestAdmin(orgId) && isValidCatalogOffering());
+        allow delete: if isTestAdmin(orgId) || isSuperAdmin();
       }
+
+      match /test_queue_counters/{counterId} {
+        allow get: if isActiveUser();
+        allow list: if isTestAdmin(orgId) || isSuperAdmin();
+        allow create: if isProfileComplete()
+          && request.resource.data.test_id is string
+          && request.resource.data.queue_year is int
+          && request.resource.data.queue_month is int
+          && request.resource.data.queue_day is int
+          && isCurrentQueueDay(request.resource.data)
+          && counterId == request.resource.data.test_id
+          && request.resource.data.last_serial == 1
+          && request.resource.data.last_called_serial == 0
+          && request.resource.data.active_request_id == null
+          && request.resource.data.last_queue_action_id == null
+          && request.resource.data.last_estimated_arrival is timestamp
+          && request.resource.data.last_estimated_arrival > request.time
+          && queueSlotMinutes(orgId, request.resource.data.test_id) is int
+          && queueSlotMinutes(orgId, request.resource.data.test_id) > 0
+          && queueSlotMinutes(orgId, request.resource.data.test_id) <= 240
+          && request.resource.data.last_estimated_arrival <= request.time + duration.value(queueSlotMinutes(orgId, request.resource.data.test_id) + 5, 'm')
+          && request.resource.data.last_request_id is string
+          && exists(/databases/$(database)/documents/organizations/$(orgId)/tests/$(request.resource.data.test_id))
+          && queueCounterMatchesBooking(orgId, counterId);
+        allow update: if isProfileComplete()
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly([
+              'queue_year',
+              'queue_month',
+              'queue_day',
+              'last_serial',
+              'last_called_serial',
+              'active_request_id',
+              'last_queue_action_id',
+              'last_estimated_arrival',
+              'last_request_id',
+              'updated_at'
+            ])
+          && request.resource.data.test_id == resource.data.test_id
+          && request.resource.data.queue_year is int
+          && request.resource.data.queue_month is int
+          && request.resource.data.queue_day is int
+          && isCurrentQueueDay(request.resource.data)
+          && counterId == request.resource.data.test_id
+          && request.resource.data.last_estimated_arrival is timestamp
+          && request.resource.data.last_estimated_arrival > request.time
+          && queueSlotMinutes(orgId, request.resource.data.test_id) is int
+          && queueSlotMinutes(orgId, request.resource.data.test_id) > 0
+          && queueSlotMinutes(orgId, request.resource.data.test_id) <= 240
+          && (
+            (currentDailyCapacityExists(orgId, request.resource.data)
+              && request.resource.data.last_serial == resource.data.last_serial + 1
+              && request.resource.data.last_called_serial == resource.data.last_called_serial
+              && request.resource.data.active_request_id == resource.data.active_request_id
+              && request.resource.data.last_queue_action_id == resource.data.last_queue_action_id
+              && request.resource.data.last_estimated_arrival > resource.data.last_estimated_arrival
+              && request.resource.data.last_estimated_arrival <=
+                (resource.data.last_estimated_arrival > request.time
+                  ? resource.data.last_estimated_arrival
+                  : request.time)
+                + duration.value(queueSlotMinutes(orgId, request.resource.data.test_id) + 5, 'm'))
+            || (!currentDailyCapacityExists(orgId, request.resource.data)
+              && request.resource.data.last_serial == 1
+              && request.resource.data.last_called_serial == 0
+              && request.resource.data.active_request_id == null
+              && request.resource.data.last_queue_action_id == null
+              && request.resource.data.last_estimated_arrival <= request.time + duration.value(queueSlotMinutes(orgId, request.resource.data.test_id) + 5, 'm'))
+          )
+          && request.resource.data.last_request_id is string
+          && queueCounterMatchesBooking(orgId, counterId);
+        allow update: if (isTestAdmin(orgId) || isSuperAdmin())
+          && validAdminCounterUpdate(orgId, counterId);
+        allow delete: if isSuperAdmin();
+      }
+
+      match /test_daily_capacity/{dailyId} {
+        allow read: if true;
+        allow create: if isProfileComplete()
+          && request.resource.data.test_id is string
+          && request.resource.data.queue_year is int
+          && request.resource.data.queue_month is int
+          && request.resource.data.queue_day is int
+          && isCurrentQueueDay(request.resource.data)
+          && dailyId == string(request.resource.data.queue_year) + '_'
+            + string(request.resource.data.queue_month) + '_'
+            + string(request.resource.data.queue_day) + '_'
+            + request.resource.data.test_id
+          && testAcceptingSerials(orgId, request.resource.data.test_id)
+          && request.resource.data.capacity == testDailyCapacity(orgId, request.resource.data.test_id)
+          && request.resource.data.capacity is int
+          && request.resource.data.capacity > 0
+          && request.resource.data.used == 1
+          && request.resource.data.remaining == request.resource.data.capacity - 1
+          && request.resource.data.last_request_id is string
+          && dailyCapacityMatchesBooking(orgId, dailyId);
+        allow update: if isProfileComplete()
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['capacity', 'used', 'remaining', 'last_request_id', 'updated_at'])
+          && request.resource.data.test_id == resource.data.test_id
+          && request.resource.data.queue_year == resource.data.queue_year
+          && request.resource.data.queue_month == resource.data.queue_month
+          && request.resource.data.queue_day == resource.data.queue_day
+          && isCurrentQueueDay(request.resource.data)
+          && testAcceptingSerials(orgId, request.resource.data.test_id)
+          && request.resource.data.capacity == testDailyCapacity(orgId, request.resource.data.test_id)
+          && request.resource.data.used == resource.data.used + 1
+          && request.resource.data.remaining == request.resource.data.capacity - request.resource.data.used
+          && request.resource.data.remaining >= 0
+          && request.resource.data.last_request_id is string
+          && dailyCapacityMatchesBooking(orgId, dailyId);
+        allow delete: if isSuperAdmin();
+      }
+    }
+
+    // Collection-group reads. The listing screens fetch all beds, ambulances,
+    // blood stock and tests across every org in a single collectionGroup query.
+    // Nested match rules do NOT apply to collectionGroup queries, so these
+    // grant the same public read at group scope. Writes are unaffected and stay
+    // restricted by the per-org nested rules above.
+    match /{path=**}/beds/{bedId} { allow read: if true; }
+    match /{path=**}/ambulances/{vehicleId} { allow read: if true; }
+    match /{path=**}/blood_stock/{stockId} { allow read: if true; }
+    match /{path=**}/tests/{testId} { allow read: if true; }
+
+    match /diagnostic_test_catalog/{catalogId} {
+      allow read: if true;
+      allow create, update, delete: if isSuperAdmin();
+    }
+
+    match /prescription_documents/{documentId} {
+      allow create: if isAuthenticated()
+        && isProfileComplete()
+        && isValidPrescriptionCreate(documentId);
+
+      allow read: if isActiveUser() && (
+        resource.data.user_id == request.auth.uid
+        || canManageBooking(
+          resource.data.organization_id,
+          resource.data.booking_type
+        )
+        || isSuperAdmin()
+      );
+
+      allow delete: if isActiveUser()
+        && prescriptionBookingIsTerminal(documentId)
+        && (resource.data.user_id == request.auth.uid
+          || canManageBooking(
+            resource.data.organization_id,
+            resource.data.booking_type
+          )
+          || isSuperAdmin());
+
+      allow update: if false;
+    }
+
+    match /prescription_assets/{documentId} {
+      // Metadata for a Cloudinary-hosted prescription. The image itself is NOT
+      // stored here — only a public_id that is useless without a server-signed,
+      // short-lived delivery URL issued by the backend.
+      allow read: if isActiveUser() && (
+        resource.data.user_id == request.auth.uid
+        || canManageBooking(
+          resource.data.organization_id,
+          resource.data.booking_type
+        )
+        || isSuperAdmin()
+      );
+
+      // Created, updated and deleted ONLY by the trusted backend via the Firebase
+      // Admin SDK, which bypasses these rules. No client may ever write here.
+      allow create, update, delete: if false;
     }
 
     // Booking requests
     match /booking_requests/{requestId} {
-      allow create: if isAuthenticated() && isProfileComplete();
+      allow create: if isAuthenticated()
+        && isProfileComplete()
+        && request.resource.data.user_id == request.auth.uid
+        && request.resource.data.type in ['bed', 'blood', 'ambulance', 'test']
+        && request.resource.data.status == 'pending'
+        && (
+          (request.resource.data.type == 'bed' && isValidBedBookingCreate(requestId))
+          || (request.resource.data.type == 'blood' && isValidBloodBookingCreate(requestId))
+          || (request.resource.data.type == 'ambulance' && isValidAmbulanceBookingCreate(requestId))
+          || (request.resource.data.type == 'test' && isValidTestBookingCreate(requestId))
+        );
 
-      allow read: if isAuthenticated() && (
+      allow read: if isActiveUser() && (
         resource.data.user_id == request.auth.uid
-        || isOrgAdmin(resource.data.organization_id)
+        || canManageBooking(resource.data.organization_id, resource.data.type)
         || isSuperAdmin()
       );
 
-      allow update: if isAuthenticated() && (
-        isOrgAdmin(resource.data.organization_id)
-        || isSuperAdmin()
-        // Allow lazy expiry updates from any authenticated user reading the doc
-        || (resource.data.user_id == request.auth.uid
-            && request.resource.data.status == 'expired'
-            && resource.data.status == 'confirmed')
-      );
+      allow update: if isActiveUser()
+        && bookingUpdateDoesNotCreateArchiveBlocker(resource.data.organization_id)
+        && (
+        ((canManageBooking(resource.data.organization_id, resource.data.type)
+            || isSuperAdmin())
+          && ((resource.data.type == 'test'
+              && (isValidTestBookingUpdate(requestId)
+                || isValidTestExpiry()))
+            || (resource.data.type != 'test'
+              && isValidNonTestAdminUpdate(requestId))))
+        // Owners may only expire their own overdue non-test booking.
+        || (resource.data.type != 'test'
+            && resource.data.user_id == request.auth.uid
+            && isValidNonTestExpiry(requestId))
+        || (resource.data.type == 'test'
+            && resource.data.user_id == request.auth.uid
+            && isValidTestExpiry())
+        );
+
+      allow delete: if resource.data.status
+          in ['rejected', 'expired', 'admitted', 'discharged']
+        && (resource.data.type != 'bed'
+          || resource.data.status != 'admitted')
+        && prescriptionIsDeletedWithBooking()
+        && (isSuperAdmin()
+          || canManageBooking(
+            resource.data.organization_id,
+            resource.data.type
+          ));
     }
 
     // Platform config
     match /config/{docId} {
       allow read: if true;
-      allow write: if isAuthenticated();
+      allow create: if isSuperAdmin();
+      allow update, delete: if isSuperAdmin();
     }
 
     // User profiles
@@ -86,11 +1507,158 @@ service cloud.firestore {
         request.auth.uid == userId || isSuperAdmin()
       );
 
-      allow create: if isAuthenticated() && request.auth.uid == userId;
+      // Privileged roles are provisioned only from a trusted admin environment.
+      allow create: if isAuthenticated()
+        && request.auth.uid == userId
+        && !exists(/databases/$(database)/documents/access_revocations/$(userId))
+        && request.resource.data.keys().hasAll([
+          'email',
+          'name',
+          'phone',
+          'profile_complete',
+          'role',
+          'organization_id'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'email',
+          'name',
+          'phone',
+          'profile_complete',
+          'role',
+          'organization_id',
+          'access_revoked',
+          'access_revoked_at',
+          'access_revoked_by'
+        ])
+        && request.auth.token.email is string
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.organization_id == null
+        && request.resource.data.role == 'patient'
+        && (!request.resource.data.keys().hasAny(['access_revoked'])
+          || request.resource.data.access_revoked == false)
+        && (!request.resource.data.keys().hasAny(['access_revoked_at'])
+          || request.resource.data.access_revoked_at == null)
+        && (!request.resource.data.keys().hasAny(['access_revoked_by'])
+          || request.resource.data.access_revoked_by == null)
+        && request.resource.data.profile_complete == false
+        && (request.resource.data.name == null
+          || isValidPersonName(request.resource.data.name))
+        && request.resource.data.phone == null;
 
-      allow update: if isAuthenticated() && (
-        request.auth.uid == userId || isSuperAdmin()
-      );
+      allow update: if (isSuperAdmin()
+          && request.auth.uid != userId
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'role',
+            'organization_id',
+            'access_revoked',
+            'access_revoked_at',
+            'access_revoked_by'
+          ])
+          && request.resource.data.email == resource.data.email
+          && (
+            (userAccessRevoked(request.resource.data)
+              && request.resource.data.role == 'patient'
+              && request.resource.data.organization_id == null
+              && request.resource.data.access_revoked_at == request.time
+              && request.resource.data.access_revoked_by == request.auth.uid)
+            || (!userAccessRevoked(request.resource.data)
+              && (!request.resource.data.keys().hasAny(['access_revoked_at'])
+                || request.resource.data.access_revoked_at == null)
+              && (!request.resource.data.keys().hasAny(['access_revoked_by'])
+                || request.resource.data.access_revoked_by == null)
+              && (
+                (request.resource.data.role in ['patient', 'super_admin']
+                  && request.resource.data.organization_id == null)
+                || (request.resource.data.role in ['bed_admin', 'test_admin', 'hospital_admin']
+                  && request.resource.data.organization_id is string
+                  && isOrganizationActive(request.resource.data.organization_id)
+                  && get(/databases/$(database)/documents/organizations/$(request.resource.data.organization_id)).data.type == 'hospital')
+                || (request.resource.data.role == 'blood_bank_admin'
+                  && request.resource.data.organization_id is string
+                  && isOrganizationActive(request.resource.data.organization_id)
+                  && get(/databases/$(database)/documents/organizations/$(request.resource.data.organization_id)).data.type == 'blood_bank')
+                || (request.resource.data.role == 'ambulance_admin'
+                  && request.resource.data.organization_id is string
+                  && isOrganizationActive(request.resource.data.organization_id)
+                  && get(/databases/$(database)/documents/organizations/$(request.resource.data.organization_id)).data.type == 'ambulance_operator')
+              ))
+          ))
+        || (isActiveUser()
+          && request.auth.uid == userId
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['name', 'phone', 'profile_complete'])
+          && request.resource.data.role == resource.data.role
+          && request.resource.data.organization_id == resource.data.organization_id
+          && request.resource.data.email == resource.data.email
+          && (
+            (request.resource.data.profile_complete == true
+              && isValidPersonName(request.resource.data.name)
+              && isValidPhone(request.resource.data.phone))
+            || (resource.data.profile_complete == false
+              && request.resource.data.profile_complete == false
+              && (request.resource.data.name == null
+                || isValidPersonName(request.resource.data.name))
+              && request.resource.data.phone == null)
+          ));
+
+      allow delete: if false;
+
+      match /diagnostic_serial_claims/{claimId} {
+        allow get: if isActiveUser()
+          && (request.auth.uid == userId || isSuperAdmin());
+        allow list: if isActiveUser()
+          && (request.auth.uid == userId || isSuperAdmin());
+        allow create: if isProfileComplete()
+          && request.auth.uid == userId
+          && request.resource.data.keys().hasOnly([
+            'organization_id',
+            'test_id',
+            'user_id',
+            'booking_id',
+            'queue_year',
+            'queue_month',
+            'queue_day',
+            'created_at'
+          ])
+          && request.resource.data.organization_id is string
+          && request.resource.data.test_id is string
+          && request.resource.data.user_id == userId
+          && request.resource.data.booking_id is string
+          && request.resource.data.queue_year is int
+          && request.resource.data.queue_month is int
+          && request.resource.data.queue_day is int
+          && request.resource.data.created_at == request.time
+          && isCurrentQueueDay(request.resource.data)
+          && claimId == request.resource.data.organization_id + '_'
+            + diagnosticQueueDayId(request.resource.data)
+          && getAfter(/databases/$(database)/documents/booking_requests/$(request.resource.data.booking_id)).data.user_id == userId
+          && getAfter(/databases/$(database)/documents/booking_requests/$(request.resource.data.booking_id)).data.organization_id == request.resource.data.organization_id
+          && getAfter(/databases/$(database)/documents/booking_requests/$(request.resource.data.booking_id)).data.test_id == request.resource.data.test_id
+          && getAfter(/databases/$(database)/documents/booking_requests/$(request.resource.data.booking_id)).data.queue_counter_id == request.resource.data.test_id
+          && getAfter(/databases/$(database)/documents/booking_requests/$(request.resource.data.booking_id)).data.status == 'pending';
+        allow update: if false;
+        allow delete: if isSuperAdmin();
+      }
+
+    }
+
+    match /access_revocations/{userId} {
+      allow read: if isAuthenticated()
+        && (request.auth.uid == userId || isSuperAdmin());
+      allow create: if isSuperAdmin()
+        && request.auth.uid != userId
+        && request.resource.data.keys().hasOnly([
+          'user_id',
+          'revoked_at',
+          'revoked_by'
+        ])
+        && request.resource.data.user_id == userId
+        && request.resource.data.revoked_at == request.time
+        && request.resource.data.revoked_by == request.auth.uid
+        && getAfter(/databases/$(database)/documents/users/$(userId)).data.access_revoked == true;
+      allow update: if false;
+      allow delete: if isSuperAdmin()
+        && getAfter(/databases/$(database)/documents/users/$(userId)).data.access_revoked == false;
     }
   }
 }

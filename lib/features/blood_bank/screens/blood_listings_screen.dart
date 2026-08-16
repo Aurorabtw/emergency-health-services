@@ -5,7 +5,9 @@ import 'package:provider/provider.dart';
 import '../../../providers/location_provider.dart';
 import '../../../providers/organization_provider.dart';
 import '../../../shared/widgets/availability_badge.dart';
+import '../../../shared/widgets/map_view.dart';
 import '../../../shared/widgets/price_widget.dart';
+import '../../../shared/widgets/skeleton_loader.dart';
 import '../../../shared/widgets/sort_filter_bar.dart';
 import '../providers/blood_provider.dart';
 
@@ -32,9 +34,18 @@ class _BloodListingsScreenState extends State<BloodListingsScreen> {
     final bloodProvider = context.read<BloodProvider>();
     final locationProvider = context.read<LocationProvider>();
 
-    await locationProvider.getCurrentLocation();
+    // Load listings first so the page renders even if location is slow or denied.
     await orgProvider.fetchVerifiedOrganizations(type: 'blood_bank');
     await bloodProvider.fetchStockForOrganizations(orgProvider.organizations);
+
+    // Location + road distances are a non-blocking enhancement for distance sorting.
+    await locationProvider.getCurrentLocation();
+    if (locationProvider.hasLocation) {
+      final destinations = orgProvider.organizations
+          .map((o) => (lat: o.latitude, lng: o.longitude, id: o.id))
+          .toList();
+      await locationProvider.fetchRoadDistances(destinations);
+    }
   }
 
   @override
@@ -48,8 +59,8 @@ class _BloodListingsScreenState extends State<BloodListingsScreen> {
 
     if (_sortOption == SortOption.distance && locationProvider.hasLocation) {
       orgs.sort((a, b) {
-        final dA = locationProvider.distanceTo(a.latitude, a.longitude) ?? double.infinity;
-        final dB = locationProvider.distanceTo(b.latitude, b.longitude) ?? double.infinity;
+        final dA = locationProvider.distanceTo(a.latitude, a.longitude, orgId: a.id) ?? double.infinity;
+        final dB = locationProvider.distanceTo(b.latitude, b.longitude, orgId: b.id) ?? double.infinity;
         return dA.compareTo(dB);
       });
     }
@@ -75,8 +86,30 @@ class _BloodListingsScreenState extends State<BloodListingsScreen> {
                 filterLabel: 'Blood Type',
               ),
               const SizedBox(height: 16),
+              if (!isLoading && orgs.isNotEmpty)
+                SharedMapView(
+                  markers: orgs.map((o) {
+                    final stock = bloodProvider.getStockForOrg(o.id);
+                    final filtered = _selectedBloodType != null
+                        ? stock.where((s) => s.bloodType == _selectedBloodType).toList()
+                        : stock;
+                    final totalAvailable = filtered.fold(0, (sum, s) => sum + s.availableUnits);
+                    return MapMarker(
+                      id: o.id,
+                      latitude: o.latitude,
+                      longitude: o.longitude,
+                      title: o.name,
+                      snippet: o.address,
+                      available: totalAvailable,
+                      onTap: () => context.push('/blood/request/${o.id}'),
+                    );
+                  }).toList(),
+                  centerLat: locationProvider.latitude,
+                  centerLng: locationProvider.longitude,
+                ),
+              const SizedBox(height: 16),
               if (isLoading)
-                const Center(child: Padding(padding: EdgeInsets.all(48), child: CircularProgressIndicator()))
+                const ListingSkeletonList()
               else if (orgs.isEmpty)
                 Center(
                   child: Padding(
@@ -97,12 +130,12 @@ class _BloodListingsScreenState extends State<BloodListingsScreen> {
                       ? stock.where((s) => s.bloodType == _selectedBloodType).toList()
                       : stock;
                   final totalAvailable = filtered.fold(0, (sum, s) => sum + s.availableUnits);
-                  final distance = locationProvider.distanceTo(org.latitude, org.longitude);
+                  final distance = locationProvider.distanceTo(org.latitude, org.longitude, orgId: org.id);
 
                   return Card(
                     margin: const EdgeInsets.only(bottom: 12),
                     child: InkWell(
-                      onTap: () => context.go('/blood/request/${org.id}'),
+                      onTap: () => context.push('/blood/request/${org.id}'),
                       borderRadius: BorderRadius.circular(12),
                       child: Padding(
                         padding: const EdgeInsets.all(16),
@@ -120,9 +153,11 @@ class _BloodListingsScreenState extends State<BloodListingsScreen> {
                                         children: [
                                           Icon(Icons.location_on, size: 14, color: Colors.grey.shade500),
                                           const SizedBox(width: 4),
-                                          Text(org.address, style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+                                          Expanded(child: Text(org.address, style: TextStyle(color: Colors.grey.shade600, fontSize: 13))),
                                           if (distance != null) ...[
                                             const SizedBox(width: 8),
+                                            Icon(Icons.directions_car, size: 13, color: Colors.grey.shade500),
+                                            const SizedBox(width: 2),
                                             Text(locationProvider.formatDistance(distance), style: TextStyle(color: Colors.grey.shade500, fontSize: 13, fontWeight: FontWeight.w500)),
                                           ],
                                         ],

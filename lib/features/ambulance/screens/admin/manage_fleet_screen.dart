@@ -16,23 +16,60 @@ class ManageFleetScreen extends StatefulWidget {
 
 class _ManageFleetScreenState extends State<ManageFleetScreen> {
   String? _orgId;
+  String? _scopeKey;
+  bool _isScopeLoading = false;
+  int _scopeGeneration = 0;
 
   @override
-  void initState() {
-    super.initState();
-    _orgId = context.read<AuthProvider>().user?.organizationId;
-    if (_orgId != null) {
-      context.read<AmbulanceProvider>().fetchAmbulancesForOrg(_orgId!);
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final auth = context.watch<AuthProvider>();
+    final user = auth.user;
+    final scopeKey = '${user?.uid}|${user?.role}|${user?.organizationId}';
+    if (scopeKey == _scopeKey) return;
+    _scopeKey = scopeKey;
+    _orgId = auth.isAmbulanceAdmin ? user?.organizationId : null;
+    _isScopeLoading = _orgId != null;
+    final generation = ++_scopeGeneration;
+    final organizationId = _orgId;
+    if (organizationId != null) {
+      Future.microtask(() => _loadScope(organizationId, generation));
     }
   }
 
+  Future<void> _loadScope(String organizationId, int generation) async {
+    if (!_isCurrentScope(organizationId, generation)) return;
+    await context.read<AmbulanceProvider>().fetchAmbulancesForOrg(
+      organizationId,
+    );
+    if (!_isCurrentScope(organizationId, generation)) return;
+    setState(() => _isScopeLoading = false);
+  }
+
+  bool _isCurrentScope(String organizationId, int generation) {
+    if (!mounted) return false;
+    final auth = context.read<AuthProvider>();
+    return generation == _scopeGeneration &&
+        _orgId == organizationId &&
+        auth.isAmbulanceAdmin &&
+        auth.user?.organizationId == organizationId;
+  }
+
   void _showForm({AmbulanceModel? existing}) {
+    final organizationId = _orgId;
+    final generation = _scopeGeneration;
+    if (organizationId == null) return;
     showDialog(
       context: context,
       builder: (_) => _AmbulanceFormDialog(
         existing: existing,
         onSave: (amb) async {
-          await context.read<AmbulanceProvider>().saveAmbulance(_orgId!, amb);
+          if (!_isCurrentScope(organizationId, generation)) return;
+          await context.read<AmbulanceProvider>().saveAmbulance(
+            organizationId,
+            amb,
+          );
+          if (!_isCurrentScope(organizationId, generation)) return;
         },
       ),
     );
@@ -40,7 +77,8 @@ class _ManageFleetScreenState extends State<ManageFleetScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (_orgId == null) return const Center(child: Text('No organization assigned'));
+    if (_orgId == null)
+      return const Center(child: Text('No organization assigned'));
 
     final ambProvider = context.watch<AmbulanceProvider>();
     final ambulances = ambProvider.getAmbulancesForOrg(_orgId!);
@@ -55,73 +93,150 @@ class _ManageFleetScreenState extends State<ManageFleetScreen> {
             children: [
               Row(
                 children: [
-                  Text('Manage Fleet', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+                  Text(
+                    'Manage Fleet',
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                   const Spacer(),
-                  FilledButton.icon(onPressed: () => _showForm(), icon: const Icon(Icons.add), label: const Text('Add Vehicle')),
+                  FilledButton.icon(
+                    onPressed: () => _showForm(),
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add Vehicle'),
+                  ),
                 ],
               ),
               const SizedBox(height: 16),
-              if (ambProvider.isLoading)
+              if (_isScopeLoading || ambProvider.isLoading)
                 const Center(child: CircularProgressIndicator())
               else if (ambulances.isEmpty)
-                const Center(child: Padding(padding: EdgeInsets.all(48), child: Text('No vehicles configured')))
+                const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(48),
+                    child: Text('No vehicles configured'),
+                  ),
+                )
               else
                 ...ambulances.map(
                   (amb) => Card(
                     margin: const EdgeInsets.only(bottom: 12),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: amb.isAvailable ? Colors.green.shade50 : Colors.grey.shade100,
-                              borderRadius: BorderRadius.circular(8),
+                    clipBehavior: Clip.antiAlias,
+                    child: InkWell(
+                      onTap: () => _showForm(existing: amb),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: amb.isAvailable
+                                    ? Colors.green.shade50
+                                    : Colors.grey.shade100,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Icon(
+                                Icons.emergency,
+                                color: amb.isAvailable
+                                    ? Colors.green
+                                    : Colors.grey,
+                                size: 32,
+                              ),
                             ),
-                            child: Icon(Icons.emergency, color: amb.isAvailable ? Colors.green : Colors.grey, size: 32),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    amb.type,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16,
+                                    ),
+                                  ),
+                                  PriceWidget(
+                                    price: amb.baseFare,
+                                    label: 'base',
+                                  ),
+                                  if (amb.perKmRate != null)
+                                    Text(
+                                      '+ ৳${amb.perKmRate!.toStringAsFixed(0)}/km',
+                                      style: TextStyle(
+                                        color: Colors.grey.shade500,
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                            Column(
                               children: [
-                                Text(amb.type, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                                PriceWidget(price: amb.baseFare, label: 'base'),
-                                if (amb.perKmRate != null) Text('+ ৳${amb.perKmRate!.toStringAsFixed(0)}/km', style: TextStyle(color: Colors.grey.shade500)),
+                                Switch(
+                                  value: amb.isAvailable,
+                                  onChanged: (_) => context
+                                      .read<AmbulanceProvider>()
+                                      .toggleStatus(_orgId!, amb),
+                                ),
+                                Text(
+                                  amb.isAvailable ? 'Available' : 'Busy',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: amb.isAvailable
+                                        ? Colors.green
+                                        : Colors.grey,
+                                  ),
+                                ),
                               ],
                             ),
-                          ),
-                          Column(
-                            children: [
-                              Switch(
-                                value: amb.isAvailable,
-                                onChanged: (_) => context.read<AmbulanceProvider>().toggleStatus(_orgId!, amb),
-                              ),
-                              Text(amb.isAvailable ? 'Available' : 'Busy', style: TextStyle(fontSize: 12, color: amb.isAvailable ? Colors.green : Colors.grey)),
-                            ],
-                          ),
-                          const SizedBox(width: 8),
-                          IconButton(icon: const Icon(Icons.edit), onPressed: () => _showForm(existing: amb)),
-                          IconButton(
-                            icon: const Icon(Icons.delete, color: Colors.red),
-                            onPressed: () async {
-                              final confirm = await showDialog<bool>(
-                                context: context,
-                                builder: (_) => AlertDialog(
-                                  title: const Text('Delete Vehicle?'),
-                                  actions: [
-                                    TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-                                    FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete')),
-                                  ],
-                                ),
-                              );
-                              if (confirm == true) {
-                                await context.read<AmbulanceProvider>().deleteAmbulance(_orgId!, amb.id);
-                              }
-                            },
-                          ),
-                        ],
+                            const SizedBox(width: 8),
+                            IconButton(
+                              icon: const Icon(Icons.edit),
+                              onPressed: () => _showForm(existing: amb),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.delete, color: Colors.red),
+                              onPressed: () async {
+                                final organizationId = _orgId;
+                                final generation = _scopeGeneration;
+                                if (organizationId == null) return;
+                                final confirm = await showDialog<bool>(
+                                  context: context,
+                                  builder: (dlgCtx) => AlertDialog(
+                                    title: const Text('Delete Vehicle?'),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () =>
+                                            Navigator.pop(dlgCtx, false),
+                                        child: const Text('Cancel'),
+                                      ),
+                                      FilledButton(
+                                        onPressed: () =>
+                                            Navigator.pop(dlgCtx, true),
+                                        child: const Text('Delete'),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                                if (!_isCurrentScope(
+                                  organizationId,
+                                  generation,
+                                ))
+                                  return;
+                                if (confirm == true) {
+                                  await context
+                                      .read<AmbulanceProvider>()
+                                      .deleteAmbulance(organizationId, amb.id);
+                                  if (!_isCurrentScope(
+                                    organizationId,
+                                    generation,
+                                  ))
+                                    return;
+                                }
+                              },
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -188,42 +303,65 @@ class _AmbulanceFormDialogState extends State<_AmbulanceFormDialog> {
             const SizedBox(height: 12),
             TextFormField(
               controller: _fareController,
-              decoration: const InputDecoration(labelText: 'Base Fare (৳)', prefixText: '৳ '),
+              decoration: const InputDecoration(
+                labelText: 'Base Fare (৳)',
+                prefixText: '৳ ',
+              ),
               keyboardType: TextInputType.number,
-              validator: (v) => Validators.validatePositiveNumber(v, 'Base fare'),
+              validator: (v) =>
+                  Validators.validatePositiveNumber(v, 'Base fare'),
             ),
             const SizedBox(height: 12),
             TextFormField(
               controller: _perKmController,
-              decoration: const InputDecoration(labelText: 'Per-km Rate (৳, optional)', prefixText: '৳ '),
+              decoration: const InputDecoration(
+                labelText: 'Per-km Rate (৳, optional)',
+                prefixText: '৳ ',
+              ),
               keyboardType: TextInputType.number,
             ),
           ],
         ),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
         FilledButton(
-          onPressed: _isLoading ? null : () async {
-            if (!_formKey.currentState!.validate()) return;
-            setState(() => _isLoading = true);
-            try {
-              final amb = AmbulanceModel(
-                id: widget.existing?.id ?? '',
-                organizationId: widget.existing?.organizationId ?? '',
-                type: _type,
-                status: widget.existing?.status ?? 'available',
-                baseFare: double.parse(_fareController.text),
-                perKmRate: _perKmController.text.isNotEmpty ? double.parse(_perKmController.text) : null,
-              );
-              await widget.onSave(amb);
-              if (mounted) Navigator.pop(context);
-            } catch (e) {
-              if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
-            }
-            if (mounted) setState(() => _isLoading = false);
-          },
-          child: _isLoading ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('Save'),
+          onPressed: _isLoading
+              ? null
+              : () async {
+                  if (!_formKey.currentState!.validate()) return;
+                  setState(() => _isLoading = true);
+                  try {
+                    final amb = AmbulanceModel(
+                      id: widget.existing?.id ?? '',
+                      organizationId: widget.existing?.organizationId ?? '',
+                      type: _type,
+                      status: widget.existing?.status ?? 'available',
+                      baseFare: double.parse(_fareController.text),
+                      perKmRate: _perKmController.text.isNotEmpty
+                          ? double.parse(_perKmController.text)
+                          : null,
+                    );
+                    await widget.onSave(amb);
+                    if (mounted) Navigator.pop(context);
+                  } catch (e) {
+                    if (mounted)
+                      ScaffoldMessenger.of(
+                        context,
+                      ).showSnackBar(SnackBar(content: Text('Error: $e')));
+                  }
+                  if (mounted) setState(() => _isLoading = false);
+                },
+          child: _isLoading
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Text('Save'),
         ),
       ],
     );

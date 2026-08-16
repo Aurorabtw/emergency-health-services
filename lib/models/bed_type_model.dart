@@ -21,7 +21,7 @@ class BedTypeModel {
     this.holdDurationMinutes = 30,
   });
 
-  int get availableBeds => totalBeds - heldBeds - admittedBeds;
+  int get availableBeds => (totalBeds - heldBeds - admittedBeds).clamp(0, totalBeds);
 
   factory BedTypeModel.fromFirestore(DocumentSnapshot doc, String orgId) {
     final data = doc.data() as Map<String, dynamic>;

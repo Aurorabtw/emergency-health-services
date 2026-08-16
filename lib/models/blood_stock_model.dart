@@ -21,7 +21,7 @@ class BloodStockModel {
     required this.lastUpdated,
   });
 
-  int get availableUnits => totalUnits - heldUnits - issuedUnits;
+  int get availableUnits => (totalUnits - heldUnits - issuedUnits).clamp(0, totalUnits);
 
   factory BloodStockModel.fromFirestore(DocumentSnapshot doc, String orgId) {
     final data = doc.data() as Map<String, dynamic>;

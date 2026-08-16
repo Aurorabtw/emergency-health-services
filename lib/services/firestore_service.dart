@@ -47,11 +47,51 @@ class FirestoreService {
     return query.get();
   }
 
+  Future<QueryPage> getCollectionPage(
+    String path, {
+    List<QueryFilter>? filters,
+    required String orderBy,
+    bool descending = false,
+    int pageSize = 50,
+    DocumentSnapshot? startAfter,
+  }) async {
+    Query query = _db.collection(path);
+    if (filters != null) {
+      for (final filter in filters) {
+        query = query.where(
+          filter.field,
+          isEqualTo: filter.isEqualTo,
+          isGreaterThan: filter.isGreaterThan,
+          isLessThan: filter.isLessThan,
+        );
+      }
+    }
+    query = query.orderBy(orderBy, descending: descending);
+    if (startAfter != null) query = query.startAfterDocument(startAfter);
+
+    final snapshot = await query.limit(pageSize + 1).get();
+    final hasMore = snapshot.docs.length > pageSize;
+    final docs = snapshot.docs.take(pageSize).toList();
+    return QueryPage(
+      docs: docs,
+      lastDocument: docs.isEmpty ? startAfter : docs.last,
+      hasMore: hasMore,
+    );
+  }
+
+  /// Fetches every document in a subcollection across ALL parents in one
+  /// request (e.g. all `beds` under every organization). The caller derives
+  /// each doc's parent via `doc.reference.parent.parent`.
+  Future<QuerySnapshot> getCollectionGroup(String collectionId) {
+    return _db.collectionGroup(collectionId).get();
+  }
+
   Stream<QuerySnapshot> streamCollection(
     String path, {
     List<QueryFilter>? filters,
     String? orderBy,
     bool descending = false,
+    int? limit,
   }) {
     Query query = _db.collection(path);
 
@@ -64,6 +104,7 @@ class FirestoreService {
     if (orderBy != null) {
       query = query.orderBy(orderBy, descending: descending);
     }
+    if (limit != null) query = query.limit(limit);
 
     return query.snapshots();
   }
@@ -96,5 +137,17 @@ class QueryFilter {
     this.isEqualTo,
     this.isGreaterThan,
     this.isLessThan,
+  });
+}
+
+class QueryPage {
+  final List<QueryDocumentSnapshot> docs;
+  final DocumentSnapshot? lastDocument;
+  final bool hasMore;
+
+  const QueryPage({
+    required this.docs,
+    required this.lastDocument,
+    required this.hasMore,
   });
 }

@@ -18,11 +18,19 @@ class SeedDataService {
     for (final org in [...hospitals, ...bloodBanks, ...ambulanceOps]) {
       final orgRef = _db.collection('organizations').doc(org['id'] as String);
       final subcollections = org.remove('_subcollections') as Map<String, List<Map<String, dynamic>>>;
+      org['archived'] = false;
+      org['archived_at'] = null;
+      org['archived_by'] = null;
       batch.set(orgRef, org);
 
       for (final entry in subcollections.entries) {
         for (final item in entry.value) {
-          final docId = item.remove('_id') as String;
+          final legacyId = item.remove('_id') as String;
+          final docId = switch (entry.key) {
+            'beds' => _bedDocumentId(item['type'] as String),
+            'blood_stock' => _bloodDocumentId(item['blood_type'] as String),
+            _ => legacyId,
+          };
           final subRef = orgRef.collection(entry.key).doc(docId);
           batch.set(subRef, item);
         }
@@ -31,6 +39,25 @@ class SeedDataService {
 
     await batch.commit();
   }
+
+  String _bedDocumentId(String type) => switch (type) {
+    'General' => 'general',
+    'ICU' => 'icu',
+    'NICU' => 'nicu',
+    _ => throw ArgumentError('Unsupported bed type.'),
+  };
+
+  String _bloodDocumentId(String type) => switch (type) {
+    'A+' => 'a_positive',
+    'A-' => 'a_negative',
+    'B+' => 'b_positive',
+    'B-' => 'b_negative',
+    'AB+' => 'ab_positive',
+    'AB-' => 'ab_negative',
+    'O+' => 'o_positive',
+    'O-' => 'o_negative',
+    _ => throw ArgumentError('Unsupported blood type.'),
+  };
 
   List<Map<String, dynamic>> _hospitalData() {
     final now = Timestamp.now();

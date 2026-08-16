@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -8,6 +10,7 @@ import '../../../providers/auth_provider.dart';
 import '../../../providers/booking_provider.dart';
 import '../../../providers/organization_provider.dart';
 import '../../../shared/utils/validators.dart';
+import '../../../shared/widgets/prescription_upload_field.dart';
 import '../../../shared/widgets/price_widget.dart';
 import '../../../shared/widgets/profile_completion_dialog.dart';
 import '../providers/blood_provider.dart';
@@ -28,13 +31,14 @@ class _BloodRequestScreenState extends State<BloodRequestScreen> {
   final _doctorController = TextEditingController();
   final _unitsController = TextEditingController(text: '1');
   OrganizationModel? _org;
-  String? _selectedBloodType;
-  String? _selectedHospital;
+  String? _selectedStockId;
+  OrganizationModel? _selectedHospital;
   List<OrganizationModel> _hospitals = [];
+  Uint8List? _prescriptionImage;
+  String _prescriptionContentType = 'image/jpeg';
   bool _isLoading = false;
   bool _isSubmitting = false;
-
-  static const _bloodTypes = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
+  int _loadGeneration = 0;
 
   @override
   void initState() {
@@ -42,62 +46,149 @@ class _BloodRequestScreenState extends State<BloodRequestScreen> {
     _loadData();
   }
 
+  @override
+  void didUpdateWidget(covariant BloodRequestScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.organizationId != widget.organizationId) {
+      _loadData();
+    }
+  }
+
   Future<void> _loadData() async {
-    setState(() => _isLoading = true);
+    final organizationId = widget.organizationId;
+    final generation = ++_loadGeneration;
+    setState(() {
+      _org = null;
+      _selectedStockId = null;
+      _selectedHospital = null;
+      _hospitals = [];
+      _prescriptionImage = null;
+      _isLoading = true;
+      _isSubmitting = false;
+    });
 
     final auth = context.read<AuthProvider>();
     _nameController.text = auth.user?.name ?? '';
     _phoneController.text = auth.user?.phone ?? '';
 
     final orgProvider = context.read<OrganizationProvider>();
-    final org = await orgProvider.getOrganization(widget.organizationId);
-    await context.read<BloodProvider>().fetchStockForOrg(widget.organizationId);
+    final org = await orgProvider.getOrganization(organizationId);
+    if (!mounted ||
+        generation != _loadGeneration ||
+        widget.organizationId != organizationId) {
+      return;
+    }
+    await context.read<BloodProvider>().fetchStockForOrg(organizationId);
+    if (!mounted ||
+        generation != _loadGeneration ||
+        widget.organizationId != organizationId) {
+      return;
+    }
     final hospitals = await orgProvider.getVerifiedByType('hospital');
+    if (!mounted ||
+        generation != _loadGeneration ||
+        widget.organizationId != organizationId) {
+      return;
+    }
 
-    if (mounted) setState(() { _org = org; _hospitals = hospitals; _isLoading = false; });
+    setState(() {
+      _org = org;
+      _hospitals = hospitals;
+      _isLoading = false;
+    });
   }
 
   Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) return;
-
+    final organizationId = widget.organizationId;
+    final generation = _loadGeneration;
     final auth = context.read<AuthProvider>();
-    if (!auth.isAuthenticated) { context.go('/login'); return; }
+    if (!auth.isAuthenticated) {
+      context.go('/login');
+      return;
+    }
+    final userId = auth.user!.uid;
 
     final profileOk = await ProfileCompletionDialog.showIfNeeded(context);
-    if (!profileOk) return;
+    if (!mounted ||
+        generation != _loadGeneration ||
+        widget.organizationId != organizationId ||
+        context.read<AuthProvider>().user?.uid != userId ||
+        !profileOk) {
+      return;
+    }
+    if (_nameController.text.trim().isEmpty) {
+      _nameController.text = auth.user?.name ?? '';
+    }
+    if (_phoneController.text.trim().isEmpty) {
+      _phoneController.text = auth.user?.phone ?? '';
+    }
+    if (!_formKey.currentState!.validate()) return;
 
     setState(() => _isSubmitting = true);
 
     try {
+      final bookingProvider = context.read<BookingProvider>();
       final bloodProvider = context.read<BloodProvider>();
-      final stock = bloodProvider.getStockForOrg(widget.organizationId);
-      final match = stock.firstWhere((s) => s.bloodType == _selectedBloodType);
+      final stock = bloodProvider.getStockForOrg(organizationId);
+      final match = stock.where((s) => s.id == _selectedStockId).firstOrNull;
+      if (match == null) throw StateError('Select an available blood type.');
       final units = int.parse(_unitsController.text);
+      if (units > match.availableUnits) {
+        throw StateError(
+          'Only ${match.availableUnits} units are currently available.',
+        );
+      }
       final estimatedPrice = match.processingFeePerUnit * units;
+      final bookingId = bookingProvider.generateBookingId();
 
       final booking = BookingRequestModel(
-        id: '',
+        id: bookingId,
         type: 'blood',
-        organizationId: widget.organizationId,
+        organizationId: organizationId,
         organizationName: _org?.name,
-        userId: auth.user!.uid,
+        userId: userId,
         patientName: _nameController.text.trim(),
-        contactNumber: _phoneController.text.trim(),
+        contactNumber: Validators.normalizePhone(_phoneController.text),
         createdAt: DateTime.now(),
-        bloodType: _selectedBloodType,
+        bloodStockId: match.id,
+        bloodType: match.bloodType,
         unitsNeeded: units,
-        hospitalName: _selectedHospital,
+        hospitalId: _selectedHospital?.id,
+        hospitalName: _selectedHospital?.name,
         prescribingDoctor: _doctorController.text.trim(),
+        prescriptionDocumentId: bookingId,
         estimatedPrice: estimatedPrice,
       );
 
-      final bookingId = await context.read<BookingProvider>().createBooking(booking);
-      if (mounted) context.go('/booking/$bookingId');
+      await bookingProvider.createBookingWithPrescription(
+        booking,
+        _prescriptionImage!,
+        contentType: _prescriptionContentType,
+      );
+      if (!mounted ||
+          generation != _loadGeneration ||
+          widget.organizationId != organizationId ||
+          context.read<AuthProvider>().user?.uid != userId) {
+        return;
+      }
+      context.go('/booking/${booking.id}');
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed: $e')));
+      if (mounted &&
+          generation == _loadGeneration &&
+          widget.organizationId == organizationId &&
+          context.read<AuthProvider>().user?.uid == userId) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed: $e')));
+      }
     }
 
-    if (mounted) setState(() => _isSubmitting = false);
+    if (mounted &&
+        generation == _loadGeneration &&
+        widget.organizationId == organizationId &&
+        context.read<AuthProvider>().user?.uid == userId) {
+      setState(() => _isSubmitting = false);
+    }
   }
 
   @override
@@ -115,7 +206,8 @@ class _BloodRequestScreenState extends State<BloodRequestScreen> {
     final stock = bloodProvider.getStockForOrg(widget.organizationId);
 
     if (_isLoading) return const Center(child: CircularProgressIndicator());
-    if (_org == null) return const Center(child: Text('Organization not found'));
+    if (_org == null)
+      return const Center(child: Text('Organization not found'));
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
@@ -130,98 +222,158 @@ class _BloodRequestScreenState extends State<BloodRequestScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Blood Request', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+                    Text(
+                      'Blood Request',
+                      style: Theme.of(context).textTheme.headlineSmall
+                          ?.copyWith(fontWeight: FontWeight.bold),
+                    ),
                     const SizedBox(height: 4),
-                    Text(_org!.name, style: TextStyle(color: Colors.grey.shade600, fontSize: 16)),
+                    Text(
+                      _org!.name,
+                      style: TextStyle(
+                        color: Colors.grey.shade600,
+                        fontSize: 16,
+                      ),
+                    ),
                     const Divider(height: 32),
                     DropdownButtonFormField<String>(
-                      value: _selectedBloodType,
-                      decoration: const InputDecoration(labelText: 'Blood Type', prefixIcon: Icon(Icons.bloodtype)),
-                      items: _bloodTypes.map((t) {
-                        final s = stock.where((s) => s.bloodType == t).firstOrNull;
-                        return DropdownMenuItem(
-                          value: t,
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(t),
-                              if (s != null) Text('${s.availableUnits} units', style: TextStyle(color: Colors.grey.shade500)),
-                            ],
-                          ),
-                        );
-                      }).toList(),
-                      onChanged: (v) => setState(() => _selectedBloodType = v),
+                      key: ValueKey('blood-type-${widget.organizationId}'),
+                      initialValue: _selectedStockId,
+                      decoration: const InputDecoration(
+                        labelText: 'Blood Type',
+                        prefixIcon: Icon(Icons.bloodtype),
+                      ),
+                      items: stock.where((item) => item.availableUnits > 0).map(
+                        (s) {
+                          return DropdownMenuItem(
+                            value: s.id,
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(s.bloodType),
+                                Text(
+                                  '${s.availableUnits} units',
+                                  style: TextStyle(color: Colors.grey.shade500),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ).toList(),
+                      onChanged: (v) => setState(() => _selectedStockId = v),
                       validator: (v) => v == null ? 'Select blood type' : null,
                     ),
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: _unitsController,
-                      decoration: const InputDecoration(labelText: 'Units Needed', prefixIcon: Icon(Icons.numbers)),
+                      decoration: const InputDecoration(
+                        labelText: 'Units Needed',
+                        prefixIcon: Icon(Icons.numbers),
+                      ),
                       keyboardType: TextInputType.number,
-                      validator: (v) => Validators.validatePositiveInt(v, 'Units'),
+                      onChanged: (_) => setState(() {}),
+                      validator: (v) {
+                        final base = Validators.validatePositiveInt(v, 'Units');
+                        if (base != null) return base;
+                        final selected = stock
+                            .where((item) => item.id == _selectedStockId)
+                            .firstOrNull;
+                        if (selected == null)
+                          return 'Select an available blood type';
+                        return int.parse(v!) > selected.availableUnits
+                            ? 'Only ${selected.availableUnits} units are available'
+                            : null;
+                      },
                     ),
-                    if (_selectedBloodType != null) ...[
+                    if (_selectedStockId != null) ...[
                       const SizedBox(height: 8),
-                      Builder(builder: (context) {
-                        final s = stock.where((s) => s.bloodType == _selectedBloodType).firstOrNull;
-                        if (s == null) return const SizedBox.shrink();
-                        final units = int.tryParse(_unitsController.text) ?? 1;
-                        return Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(8)),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              PriceWidget(price: s.processingFeePerUnit, label: 'unit'),
-                              EstimatedPriceWidget(price: s.processingFeePerUnit * units),
-                            ],
-                          ),
-                        );
-                      }),
+                      Builder(
+                        builder: (context) {
+                          final s = stock
+                              .where((s) => s.id == _selectedStockId)
+                              .firstOrNull;
+                          if (s == null) return const SizedBox.shrink();
+                          final units =
+                              int.tryParse(_unitsController.text) ?? 1;
+                          return Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.red.shade50,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                PriceWidget(
+                                  price: s.processingFeePerUnit,
+                                  label: 'unit',
+                                ),
+                                EstimatedPriceWidget(
+                                  price: s.processingFeePerUnit * units,
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
                     ],
                     const SizedBox(height: 16),
                     TextFormField(
                       controller: _nameController,
-                      decoration: const InputDecoration(labelText: 'Patient Name', prefixIcon: Icon(Icons.person)),
+                      decoration: const InputDecoration(
+                        labelText: 'Patient Name',
+                        prefixIcon: Icon(Icons.person),
+                      ),
                       validator: Validators.validateName,
                     ),
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: _phoneController,
-                      decoration: const InputDecoration(labelText: 'Contact Number', prefixIcon: Icon(Icons.phone)),
+                      decoration: const InputDecoration(
+                        labelText: 'Contact Number',
+                        prefixIcon: Icon(Icons.phone),
+                      ),
                       validator: Validators.validatePhone,
                     ),
                     const SizedBox(height: 12),
                     Autocomplete<OrganizationModel>(
+                      key: ValueKey('hospital-${widget.organizationId}'),
                       optionsBuilder: (textEditingValue) {
-                        if (textEditingValue.text.isEmpty) return const Iterable.empty();
+                        if (textEditingValue.text.isEmpty)
+                          return const Iterable.empty();
                         final query = textEditingValue.text.toLowerCase();
-                        return _hospitals.where((h) =>
-                          h.name.toLowerCase().contains(query) ||
-                          h.address.toLowerCase().contains(query)
+                        return _hospitals.where(
+                          (h) =>
+                              h.name.toLowerCase().contains(query) ||
+                              h.address.toLowerCase().contains(query),
                         );
                       },
                       displayStringForOption: (org) => org.name,
-                      onSelected: (org) => _selectedHospital = org.name,
-                      fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
-                        return TextFormField(
-                          controller: controller,
-                          focusNode: focusNode,
-                          decoration: const InputDecoration(
-                            labelText: 'Hospital Where Blood is Needed',
-                            prefixIcon: Icon(Icons.local_hospital),
-                            hintText: 'Search hospitals...',
-                          ),
-                          validator: (v) {
-                            if (v == null || v.isEmpty) return 'Select a hospital';
-                            if (_selectedHospital == null) return 'Select a hospital from the list';
-                            return null;
+                      onSelected: (org) => _selectedHospital = org,
+                      fieldViewBuilder:
+                          (context, controller, focusNode, onFieldSubmitted) {
+                            return TextFormField(
+                              controller: controller,
+                              focusNode: focusNode,
+                              decoration: const InputDecoration(
+                                labelText: 'Hospital Where Blood is Needed',
+                                prefixIcon: Icon(Icons.local_hospital),
+                                hintText: 'Search hospitals...',
+                              ),
+                              validator: (v) {
+                                if (v == null || v.isEmpty)
+                                  return 'Select a hospital';
+                                if (_selectedHospital == null)
+                                  return 'Select a hospital from the list';
+                                return null;
+                              },
+                              onChanged: (value) {
+                                if (value != _selectedHospital?.name) {
+                                  _selectedHospital = null;
+                                }
+                              },
+                            );
                           },
-                          onChanged: (value) {
-                            if (value.isEmpty) _selectedHospital = null;
-                          },
-                        );
-                      },
                       optionsViewBuilder: (context, onSelected, options) {
                         return Align(
                           alignment: Alignment.topLeft,
@@ -229,7 +381,10 @@ class _BloodRequestScreenState extends State<BloodRequestScreen> {
                             elevation: 4,
                             borderRadius: BorderRadius.circular(8),
                             child: ConstrainedBox(
-                              constraints: const BoxConstraints(maxHeight: 200, maxWidth: 552),
+                              constraints: const BoxConstraints(
+                                maxHeight: 200,
+                                maxWidth: 552,
+                              ),
                               child: ListView.builder(
                                 padding: EdgeInsets.zero,
                                 shrinkWrap: true,
@@ -237,9 +392,18 @@ class _BloodRequestScreenState extends State<BloodRequestScreen> {
                                 itemBuilder: (context, index) {
                                   final org = options.elementAt(index);
                                   return ListTile(
-                                    leading: const Icon(Icons.local_hospital, size: 20),
+                                    leading: const Icon(
+                                      Icons.local_hospital,
+                                      size: 20,
+                                    ),
                                     title: Text(org.name),
-                                    subtitle: org.address.isNotEmpty ? Text(org.address, overflow: TextOverflow.ellipsis, maxLines: 1) : null,
+                                    subtitle: org.address.isNotEmpty
+                                        ? Text(
+                                            org.address,
+                                            overflow: TextOverflow.ellipsis,
+                                            maxLines: 1,
+                                          )
+                                        : null,
                                     onTap: () => onSelected(org),
                                   );
                                 },
@@ -252,8 +416,20 @@ class _BloodRequestScreenState extends State<BloodRequestScreen> {
                     const SizedBox(height: 12),
                     TextFormField(
                       controller: _doctorController,
-                      decoration: const InputDecoration(labelText: 'Prescribing Doctor', prefixIcon: Icon(Icons.medical_services)),
-                      validator: (v) => Validators.validateRequired(v, 'Doctor name'),
+                      decoration: const InputDecoration(
+                        labelText: 'Prescribing Doctor',
+                        prefixIcon: Icon(Icons.medical_services),
+                      ),
+                      validator: (v) =>
+                          Validators.validateRequired(v, 'Doctor name'),
+                    ),
+                    const SizedBox(height: 16),
+                    PrescriptionUploadField(
+                      key: ValueKey('prescription-${widget.organizationId}'),
+                      onChanged: (bytes, _, contentType) => setState(() {
+                        _prescriptionImage = bytes;
+                        _prescriptionContentType = contentType;
+                      }),
                     ),
                     const SizedBox(height: 24),
                     SizedBox(
@@ -261,14 +437,24 @@ class _BloodRequestScreenState extends State<BloodRequestScreen> {
                       child: FilledButton(
                         onPressed: _isSubmitting ? null : _submit,
                         child: _isSubmitting
-                            ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                            ? const SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
                             : const Text('Submit Blood Request'),
                       ),
                     ),
                     const SizedBox(height: 12),
                     Text(
                       'The blood bank will verify your request and call you before confirming.',
-                      style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+                      style: TextStyle(
+                        color: Colors.grey.shade500,
+                        fontSize: 12,
+                      ),
                       textAlign: TextAlign.center,
                     ),
                   ],

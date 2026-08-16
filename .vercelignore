@@ -1,0 +1,17 @@
+# Only the /api serverless functions are deployed to Vercel.
+# The Flutter web app itself stays on Firebase Hosting.
+build/
+web/
+lib/
+test/
+tool/
+rules-tests/
+node_modules/
+.dart_tool/
+.firebase/
+*.log
+*.zip
+SDP_Report_*
+DATA_ENTRY_GUIDE.md
+firestore.rules
+firestore.indexes.json

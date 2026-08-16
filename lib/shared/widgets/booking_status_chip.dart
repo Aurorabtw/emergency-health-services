@@ -2,8 +2,9 @@ import 'package:flutter/material.dart';
 
 class BookingStatusChip extends StatelessWidget {
   final String status;
+  final String? bookingType;
 
-  const BookingStatusChip({super.key, required this.status});
+  const BookingStatusChip({super.key, required this.status, this.bookingType});
 
   Color get _color {
     switch (status) {
@@ -13,6 +14,8 @@ class BookingStatusChip extends StatelessWidget {
         return Colors.blue;
       case 'admitted':
         return Colors.green;
+      case 'discharged':
+        return Colors.teal;
       case 'expired':
         return Colors.grey;
       case 'rejected':
@@ -30,6 +33,8 @@ class BookingStatusChip extends StatelessWidget {
         return Icons.check_circle_outline;
       case 'admitted':
         return Icons.check_circle;
+      case 'discharged':
+        return Icons.logout;
       case 'expired':
         return Icons.timer_off;
       case 'rejected':
@@ -40,6 +45,28 @@ class BookingStatusChip extends StatelessWidget {
   }
 
   String get _label {
+    if (bookingType == 'bed') {
+      switch (status) {
+        case 'confirmed':
+          return 'Held';
+        case 'admitted':
+          return 'Admitted';
+        case 'discharged':
+          return 'Discharged';
+      }
+    }
+    if (bookingType == 'test') {
+      switch (status) {
+        case 'pending':
+          return 'Waiting';
+        case 'confirmed':
+          return 'Called';
+        case 'admitted':
+          return 'Completed';
+        case 'rejected':
+          return 'Cancelled';
+      }
+    }
     switch (status) {
       case 'pending':
         return 'Pending';
@@ -47,6 +74,8 @@ class BookingStatusChip extends StatelessWidget {
         return 'Confirmed';
       case 'admitted':
         return 'Completed';
+      case 'discharged':
+        return 'Discharged';
       case 'expired':
         return 'Expired';
       case 'rejected':
@@ -60,7 +89,10 @@ class BookingStatusChip extends StatelessWidget {
   Widget build(BuildContext context) {
     return Chip(
       avatar: Icon(_icon, color: _color, size: 18),
-      label: Text(_label, style: TextStyle(color: _color, fontWeight: FontWeight.w600)),
+      label: Text(
+        _label,
+        style: TextStyle(color: _color, fontWeight: FontWeight.w600),
+      ),
       backgroundColor: _color.withValues(alpha: 0.1),
       side: BorderSide(color: _color.withValues(alpha: 0.3)),
       padding: const EdgeInsets.symmetric(horizontal: 4),

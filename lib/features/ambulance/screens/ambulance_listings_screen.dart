@@ -5,7 +5,9 @@ import 'package:provider/provider.dart';
 import '../../../providers/location_provider.dart';
 import '../../../providers/organization_provider.dart';
 import '../../../shared/widgets/availability_badge.dart';
+import '../../../shared/widgets/map_view.dart';
 import '../../../shared/widgets/price_widget.dart';
+import '../../../shared/widgets/skeleton_loader.dart';
 import '../../../shared/widgets/sort_filter_bar.dart';
 import '../providers/ambulance_provider.dart';
 
@@ -31,9 +33,18 @@ class _AmbulanceListingsScreenState extends State<AmbulanceListingsScreen> {
     final ambProvider = context.read<AmbulanceProvider>();
     final locationProvider = context.read<LocationProvider>();
 
-    await locationProvider.getCurrentLocation();
+    // Load listings first so the page renders even if location is slow or denied.
     await orgProvider.fetchVerifiedOrganizations(type: 'ambulance_operator');
     await ambProvider.fetchAmbulancesForOperators(orgProvider.organizations);
+
+    // Location + road distances are a non-blocking enhancement for distance sorting.
+    await locationProvider.getCurrentLocation();
+    if (locationProvider.hasLocation) {
+      final destinations = orgProvider.organizations
+          .map((o) => (lat: o.latitude, lng: o.longitude, id: o.id))
+          .toList();
+      await locationProvider.fetchRoadDistances(destinations);
+    }
   }
 
   @override
@@ -47,8 +58,8 @@ class _AmbulanceListingsScreenState extends State<AmbulanceListingsScreen> {
 
     if (_sortOption == SortOption.distance && locationProvider.hasLocation) {
       operators.sort((a, b) {
-        final dA = locationProvider.distanceTo(a.latitude, a.longitude) ?? double.infinity;
-        final dB = locationProvider.distanceTo(b.latitude, b.longitude) ?? double.infinity;
+        final dA = locationProvider.distanceTo(a.latitude, a.longitude, orgId: a.id) ?? double.infinity;
+        final dB = locationProvider.distanceTo(b.latitude, b.longitude, orgId: b.id) ?? double.infinity;
         return dA.compareTo(dB);
       });
     } else if (_sortOption == SortOption.priceLowHigh) {
@@ -86,8 +97,28 @@ class _AmbulanceListingsScreenState extends State<AmbulanceListingsScreen> {
                 filterLabel: 'Vehicle Type',
               ),
               const SizedBox(height: 16),
+              if (!isLoading && operators.isNotEmpty)
+                SharedMapView(
+                  markers: operators.map((op) {
+                    final ambulances = ambProvider.getAmbulancesForOrg(op.id);
+                    final filtered = _typeFilter != null ? ambulances.where((a) => a.type == _typeFilter).toList() : ambulances;
+                    final availableCount = filtered.where((a) => a.isAvailable).length;
+                    return MapMarker(
+                      id: op.id,
+                      latitude: op.latitude,
+                      longitude: op.longitude,
+                      title: op.name,
+                      snippet: op.address,
+                      available: availableCount,
+                      onTap: () => context.push('/ambulance/book/${op.id}'),
+                    );
+                  }).toList(),
+                  centerLat: locationProvider.latitude,
+                  centerLng: locationProvider.longitude,
+                ),
+              const SizedBox(height: 16),
               if (isLoading)
-                const Center(child: Padding(padding: EdgeInsets.all(48), child: CircularProgressIndicator()))
+                const ListingSkeletonList()
               else if (operators.isEmpty)
                 Center(
                   child: Padding(
@@ -106,12 +137,12 @@ class _AmbulanceListingsScreenState extends State<AmbulanceListingsScreen> {
                   final ambulances = ambProvider.getAmbulancesForOrg(op.id);
                   final filtered = _typeFilter != null ? ambulances.where((a) => a.type == _typeFilter).toList() : ambulances;
                   final availableCount = filtered.where((a) => a.isAvailable).length;
-                  final distance = locationProvider.distanceTo(op.latitude, op.longitude);
+                  final distance = locationProvider.distanceTo(op.latitude, op.longitude, orgId: op.id);
 
                   return Card(
                     margin: const EdgeInsets.only(bottom: 12),
                     child: InkWell(
-                      onTap: () => context.go('/ambulance/book/${op.id}'),
+                      onTap: () => context.push('/ambulance/book/${op.id}'),
                       borderRadius: BorderRadius.circular(12),
                       child: Padding(
                         padding: const EdgeInsets.all(16),
@@ -130,8 +161,12 @@ class _AmbulanceListingsScreenState extends State<AmbulanceListingsScreen> {
                                           Icon(Icons.location_on, size: 14, color: Colors.grey.shade500),
                                           const SizedBox(width: 4),
                                           Expanded(child: Text(op.address, style: TextStyle(color: Colors.grey.shade600, fontSize: 13))),
-                                          if (distance != null)
+                                          if (distance != null) ...[
+                                            const SizedBox(width: 8),
+                                            Icon(Icons.directions_car, size: 13, color: Colors.grey.shade500),
+                                            const SizedBox(width: 2),
                                             Text(locationProvider.formatDistance(distance), style: TextStyle(color: Colors.grey.shade500, fontSize: 13, fontWeight: FontWeight.w500)),
+                                          ],
                                         ],
                                       ),
                                     ],

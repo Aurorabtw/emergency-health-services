@@ -5,8 +5,11 @@ import 'package:provider/provider.dart';
 import '../../../models/organization_model.dart';
 import '../../../providers/location_provider.dart';
 import '../../../providers/organization_provider.dart';
+import '../../../shared/widgets/app_animations.dart';
 import '../../../shared/widgets/availability_badge.dart';
+import '../../../shared/widgets/map_view.dart';
 import '../../../shared/widgets/price_widget.dart';
+import '../../../shared/widgets/skeleton_loader.dart';
 import '../../../shared/widgets/sort_filter_bar.dart';
 import '../providers/bed_provider.dart';
 
@@ -32,9 +35,18 @@ class _BedListingsScreenState extends State<BedListingsScreen> {
     final bedProvider = context.read<BedProvider>();
     final locationProvider = context.read<LocationProvider>();
 
-    await locationProvider.getCurrentLocation();
+    // Load listings first so the page renders even if location is slow or denied.
     await orgProvider.fetchVerifiedOrganizations(type: 'hospital');
     await bedProvider.fetchBedsForHospitals(orgProvider.organizations);
+
+    // Location + road distances are a non-blocking enhancement for distance sorting.
+    await locationProvider.getCurrentLocation();
+    if (locationProvider.hasLocation) {
+      final destinations = orgProvider.organizations
+          .map((o) => (lat: o.latitude, lng: o.longitude, id: o.id))
+          .toList();
+      await locationProvider.fetchRoadDistances(destinations);
+    }
   }
 
   List<OrganizationModel> _sortedHospitals() {
@@ -48,8 +60,8 @@ class _BedListingsScreenState extends State<BedListingsScreen> {
       case SortOption.distance:
         if (locationProvider.hasLocation) {
           hospitals.sort((a, b) {
-            final distA = locationProvider.distanceTo(a.latitude, a.longitude) ?? double.infinity;
-            final distB = locationProvider.distanceTo(b.latitude, b.longitude) ?? double.infinity;
+            final distA = locationProvider.distanceTo(a.latitude, a.longitude, orgId: a.id) ?? double.infinity;
+            final distB = locationProvider.distanceTo(b.latitude, b.longitude, orgId: b.id) ?? double.infinity;
             return distA.compareTo(distB);
           });
         }
@@ -113,23 +125,40 @@ class _BedListingsScreenState extends State<BedListingsScreen> {
                 filterLabel: 'Bed Type',
               ),
               const SizedBox(height: 16),
+              if (!isLoading && orgProvider.organizations.isNotEmpty)
+                SharedMapView(
+                  markers: _sortedHospitals().map((h) => MapMarker(
+                    id: h.id,
+                    latitude: h.latitude,
+                    longitude: h.longitude,
+                    title: h.name,
+                    snippet: h.address,
+                    available: bedProvider.getTotalAvailable(h.id, bedType: _bedTypeFilter),
+                    onTap: () => context.push('/beds/book/${h.id}'),
+                  )).toList(),
+                  centerLat: locationProvider.latitude,
+                  centerLng: locationProvider.longitude,
+                ),
+              const SizedBox(height: 16),
               if (isLoading)
-                const Center(child: Padding(padding: EdgeInsets.all(48), child: CircularProgressIndicator()))
+                const ListingSkeletonList()
               else if (orgProvider.organizations.isEmpty)
                 _emptyState()
               else
-                ..._sortedHospitals().map((hospital) {
+                ..._sortedHospitals().asMap().entries.map((entry) {
+                  final index = entry.key;
+                  final hospital = entry.value;
                   final beds = bedProvider.getBedsForHospital(hospital.id);
                   final filteredBeds = _bedTypeFilter != null
                       ? beds.where((b) => b.type == _bedTypeFilter).toList()
                       : beds;
                   final totalAvailable = filteredBeds.fold(0, (sum, b) => sum + b.availableBeds);
-                  final distance = locationProvider.distanceTo(hospital.latitude, hospital.longitude);
+                  final distance = locationProvider.distanceTo(hospital.latitude, hospital.longitude, orgId: hospital.id);
 
-                  return Card(
-                    margin: const EdgeInsets.only(bottom: 12),
+                  final card = Card(
+                    margin: EdgeInsets.zero,
                     child: InkWell(
-                      onTap: () => context.go('/beds/book/${hospital.id}'),
+                      onTap: () => context.push('/beds/book/${hospital.id}'),
                       borderRadius: BorderRadius.circular(12),
                       child: Padding(
                         padding: const EdgeInsets.all(16),
@@ -148,9 +177,11 @@ class _BedListingsScreenState extends State<BedListingsScreen> {
                                         children: [
                                           Icon(Icons.location_on, size: 14, color: Colors.grey.shade500),
                                           const SizedBox(width: 4),
-                                          Text(hospital.address, style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+                                          Expanded(child: Text(hospital.address, style: TextStyle(color: Colors.grey.shade600, fontSize: 13))),
                                           if (distance != null) ...[
                                             const SizedBox(width: 8),
+                                            Icon(Icons.directions_car, size: 13, color: Colors.grey.shade500),
+                                            const SizedBox(width: 2),
                                             Text(locationProvider.formatDistance(distance),
                                                 style: TextStyle(color: Colors.grey.shade500, fontSize: 13, fontWeight: FontWeight.w500)),
                                           ],
@@ -190,6 +221,16 @@ class _BedListingsScreenState extends State<BedListingsScreen> {
                           ],
                         ),
                       ),
+                    ),
+                  );
+
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: FadeSlideIn(
+                      // Stagger the first few cards; later ones appear together
+                      delay: Duration(milliseconds: 60 * (index < 6 ? index : 6)),
+                      duration: const Duration(milliseconds: 400),
+                      child: HoverLift(lift: 2, child: card),
                     ),
                   );
                 }),

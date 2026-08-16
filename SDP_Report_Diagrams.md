@@ -35,16 +35,16 @@ graph TB
         direction LR
         AS[AuthService]
         FS[FirestoreService]
-        SS[StorageService]
+        PRS[PrescriptionService]
         LS[LocationService]
         SDS[SeedDataService]
     end
 
-    subgraph FL["☁️ Firebase Cloud"]
+    subgraph FL["☁️ Firebase Cloud + External"]
         direction LR
         FA[Firebase Auth]
         CF[Cloud Firestore]
-        FStorage[Firebase Storage]
+        OSM[OpenStreetMap / OSRM]
     end
 
     subgraph SEC["🔒 Security"]
@@ -55,7 +55,8 @@ graph TB
     SML --> SL
     AS --> FA
     FS --> CF
-    SS --> FStorage
+    PRS --> CF
+    LS --> OSM
     SDS --> CF
     FSR -.->|enforces access| CF
 
@@ -77,7 +78,7 @@ graph LR
     SuperAdmin((👑 Super Admin))
 
     subgraph System["Emergency Healthcare Access Platform"]
-        UC1[Sign In with Google]
+        UC1[Sign In / Register]
         UC2[Browse Bed Listings]
         UC3[Book Emergency Bed]
         UC4[Browse Ambulance Operators]
@@ -174,9 +175,9 @@ flowchart TD
     P3["3.0\nSubmit Bed\nBooking"]
     P4["4.0\nManage Bed\nRequests"]
 
-    OA["🏥 Hospital Admin"]
+    OA["🛏️ Bed Admin"]
 
-    P -->|"Google credentials"| P1
+    P -->|"Email/password or\nGoogle credentials"| P1
     P1 -->|"Auth token"| D3
     D3 -->|"User profile"| P1
     P1 -->|"Authenticated session"| P2
@@ -222,7 +223,7 @@ flowchart TD
 
     OA["🩸 Blood Bank Admin"]
 
-    P -->|"Google credentials"| P1
+    P -->|"Email/password or\nGoogle credentials"| P1
     P1 -->|"Auth and profile"| D3
     D3 -->|"User data"| P1
     P1 -->|"Authenticated session"| P2
@@ -268,7 +269,7 @@ flowchart TD
 
     OA["🚑 Ambulance Admin"]
 
-    P -->|"Google credentials"| P1
+    P -->|"Email/password or\nGoogle credentials"| P1
     P1 -->|"Auth and profile"| D3
     D3 -->|"User data"| P1
     P1 -->|"Authenticated session"| P2
@@ -370,13 +371,19 @@ erDiagram
         double estimated_price
         timestamp created_at
         string bed_type "nullable"
-        string prescription_image_url "nullable"
+        string bed_id "nullable"
+        string prescription_document_id "nullable"
         string blood_type "nullable"
+        string blood_stock_id "nullable"
         int units_needed "nullable"
+        string hospital_id "nullable"
         string hospital_name "nullable"
         string prescribing_doctor "nullable"
         string ambulance_type "nullable"
+        string ambulance_reference_id "nullable"
+        string ambulance_id "nullable"
         string pickup_address "nullable"
+        string destination_hospital_id "nullable"
         string destination_address "nullable"
         string patient_condition_notes "nullable"
     }
@@ -386,15 +393,9 @@ erDiagram
         string email
         string name
         string phone
-        string role "patient | hospital_admin | blood_bank_admin | ambulance_admin | super_admin"
+        string role "patient | bed_admin | test_admin | blood_bank_admin | ambulance_admin | super_admin"
         string organization_id FK "nullable"
         boolean profile_complete
-    }
-
-    CONFIG_PLATFORM {
-        boolean initialized
-        string initialized_by FK
-        string initialized_at
     }
 
     ORGANIZATIONS ||--o{ BEDS : "has (hospitals)"
@@ -404,7 +405,6 @@ erDiagram
     ORGANIZATIONS ||--o{ BOOKING_REQUESTS : "receives"
     USERS ||--o{ BOOKING_REQUESTS : "submits"
     USERS |o--o| ORGANIZATIONS : "administers"
-    USERS ||--|| CONFIG_PLATFORM : "initializes (first user)"
 ```
 
 ---
@@ -456,23 +456,25 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A([User clicks\nSign In with Google]) --> B[Firebase Auth\nsignInWithPopup]
-    B --> C{Sign-in\nsuccessful?}
-    C -->|No| D[Show error\nReturn to login]
+    A([User opens\nLogin Screen]) --> B{Auth\nmethod?}
+    B -->|Email + Password| C1[Register or Sign In\nwith email/password]
+    B -->|Google| C2[Firebase Auth\nsignInWithPopup]
+    B -->|Forgot Password| FP[Enter email\nSend reset link]
+    FP --> A
+
+    C1 --> C{Sign-in\nsuccessful?}
+    C2 --> C
+    C -->|No| D[Show error message\nReturn to login]
 
     C -->|Yes| E{User document\nexists in Firestore?}
 
     E -->|Yes| F[Load existing\nUserModel]
     F --> G{Check user role}
 
-    E -->|No — First time| H{config/platform\ndocument exists?}
+    E -->|No - First time| L[Assign role:\npatient]
+    L --> K[Create user document\nin Firestore]
 
-    H -->|No — First ever user| I[Assign role:\nsuper_admin]
-    I --> J[Create config/platform\ninitialized: true]
-    J --> K[Create user document\nin Firestore]
-
-    H -->|Yes — Not first user| L[Assign role:\npatient]
-    L --> K
+    P[Trusted operator provisions\ninitial super_admin\nin Firebase Console] --> G
 
     K --> G
 
@@ -481,8 +483,11 @@ flowchart TD
     G -->|patient| O[Redirect to\nHome Screen]
 
     style A fill:#e3f2fd,stroke:#1565c0,color:#000
-    style I fill:#fce4ec,stroke:#c62828,color:#000
+    style C1 fill:#e3f2fd,stroke:#1565c0,color:#000
+    style C2 fill:#e3f2fd,stroke:#1565c0,color:#000
+    style FP fill:#fff9c4,stroke:#f57f17,color:#000
     style L fill:#e8f5e9,stroke:#2e7d32,color:#000
+    style P fill:#fce4ec,stroke:#c62828,color:#000
     style M fill:#f3e5f5,stroke:#6a1b9a,color:#000
     style N fill:#fff3e0,stroke:#e65100,color:#000
     style O fill:#e3f2fd,stroke:#1565c0,color:#000
@@ -608,7 +613,7 @@ graph TB
     end
 
     subgraph MP["MultiProvider (8 Providers)"]
-        AP[AuthProvider\n• user, role\n• isAuthenticated\n• signIn/signOut]
+        AP[AuthProvider\n• user, role, error\n• isAuthenticated\n• email/Google signIn\n• register/reset/signOut]
         LP[LocationProvider\n• lat/lng\n• distanceTo\n• formatDistance]
         OP[OrganizationProvider\n• organizations\n• fetchByType\n• getByType]
         BKP[BookingProvider\n• bookings\n• create/reject/admit\n• fetchByUser/Org]
@@ -621,7 +626,7 @@ graph TB
     subgraph SVC["Service Layer"]
         AuthS[AuthService]
         FireS[FirestoreService]
-        StorS[StorageService]
+        PresS[PrescriptionService]
         LocS[LocationService]
         SeedS[SeedDataService]
     end
@@ -652,7 +657,8 @@ graph TB
 flowchart LR
     subgraph Roles
         PAT["👤 Patient"]
-        HA["🏥 Hospital Admin"]
+        BA["🛏️ Bed Admin"]
+        TA["🧪 Diagnostic Test Admin"]
         BBA["🩸 Blood Bank Admin"]
         AA["🚑 Ambulance Admin"]
         SA["👑 Super Admin"]
@@ -677,9 +683,9 @@ flowchart LR
     PAT -->|"read own bookings"| BReq
     PAT -->|"read and update own"| UsersCol
 
-    HA -->|"read and write"| Beds
-    HA -->|"read and write"| Tests
-    HA -->|"read and update own org"| BReq
+    BA -->|"read and write"| Beds
+    BA -->|"read and update bed requests"| BReq
+    TA -->|"read and write"| Tests
 
     BBA -->|"read and write"| Blood
     BBA -->|"read and update own org"| BReq
@@ -696,7 +702,8 @@ flowchart LR
     SA -->|"read and update ALL"| UsersCol
 
     style PAT fill:#e8f5e9,stroke:#2e7d32,color:#000
-    style HA fill:#e3f2fd,stroke:#1565c0,color:#000
+    style BA fill:#e3f2fd,stroke:#1565c0,color:#000
+    style TA fill:#ede7f6,stroke:#6a1b9a,color:#000
     style BBA fill:#fce4ec,stroke:#c62828,color:#000
     style AA fill:#fff3e0,stroke:#e65100,color:#000
     style SA fill:#f3e5f5,stroke:#6a1b9a,color:#000

@@ -32,12 +32,30 @@
 
   <title>Emergency Healthcare</title>
   <link rel="manifest" href="manifest.json">
+  <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
 
-  <!-- Google Maps API -->
-  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyArkx4E2UBWpLOTN3W3HiKWteA_h_Ilj5Q"></script>
+  <style>
+    #app-loading {
+      align-items: center;
+      background: #f6f8fb;
+      color: #164e63;
+      display: flex;
+      font: 600 16px Arial, sans-serif;
+      inset: 0;
+      justify-content: center;
+      position: fixed;
+    }
+  </style>
+
 </head>
 
 <body>
+  <div id="app-loading">Loading Emergency Healthcare...</div>
+  <script>
+    window.addEventListener('flutter-first-frame', () => {
+      document.getElementById('app-loading')?.remove();
+    });
+  </script>
   <!--
     You can customize the "flutter_bootstrap.js" script.
     This is useful to provide a custom configuration to the Flutter loader

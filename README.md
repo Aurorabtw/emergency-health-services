@@ -11,13 +11,64 @@ A unified emergency healthcare coordination platform built with **Flutter Web** 
 | **Emergency Blood Bank** | Search by blood type, check unit availability, request blood | Manage blood stock per type, approve/hold/issue units |
 | **Diagnostic Tests** | Search tests by name, compare prices across hospitals, tap-to-call | Manage test catalog with pricing and turnaround times |
 
+## Updates in This Branch
+
+### Service-Scoped Administration
+
+- Replaced the combined hospital workflow with four service roles: `bed_admin`, `test_admin`, `blood_bank_admin`, and `ambulance_admin`.
+- Bed admins manage bed inventory and bed requests; diagnostic test admins only manage the hospital test catalog.
+- Route guards and Firestore rules prevent admins from opening or modifying another service's data.
+- Existing `hospital_admin` users remain supported as a temporary legacy role with combined bed and test access. Reassign them after deploying the updated rules.
+- Role and organization assignment changes are observed in real time, without requiring the affected user to sign out and back in.
+
+### Live Booking Coordination
+
+- Patient booking lists and booking details use Firestore snapshot listeners.
+- Organization dashboards receive new patient requests and update Pending, Confirmed, Today, and Closed counts automatically.
+- Admin actions such as confirm, reject, complete, admit, or expire are reflected on the patient's open screen without a manual refresh.
+
+### Admin Dashboard Improvements
+
+- Organization admins see live request metrics, service-specific availability, organization contact details, and quick-action badges.
+- Super-admin organization summary cards are clickable and open filtered Hospital, Blood Bank, Ambulance Operator, or All Organization views.
+- Organization management includes category filters and filtered totals.
+- User Management now provides search, role filtering, pagination, responsive layouts, profile status, and an Assigned Hospital / Organization column.
+- Invalid role/organization combinations are flagged and must be corrected in the role editor.
+- Super admins cannot demote or revoke their own platform access.
+
+### Ambulance Lifecycle Fixes
+
+- Ambulance confirmation now reserves an actual available vehicle instead of using bed/blood aggregate counters.
+- The assigned `ambulance_id` is stored on the booking.
+- Vehicle status changes from `available` to `busy` on confirmation and returns to `available` when the trip completes or expires.
+- Duplicate vehicle types are collapsed into one patient-facing type option, while the admin transaction selects an available vehicle.
+- Transaction failures now produce readable messages instead of boxed Dart web exceptions.
+
+### Security Rule Changes
+
+- Firestore writes are scoped by service role and assigned organization.
+- Users cannot change their own role or organization assignment.
+- Super admins revoke platform access without deleting user profiles, authentication identities, or booking history. Revoked sessions are signed out and protected reads/writes are denied.
+- Organizations are archived rather than deleted. Archived organizations disappear from listings and lose organization-admin authority while historical data remains intact.
+- Deleting or disabling another Firebase Authentication identity still requires Firebase Admin SDK, the Firebase Console, or another trusted backend.
+- Firestore rules, indexes, and Hosting are verified and deployed together from the production `main` workflow.
+
+### Deployment Migration Notes
+
+- Before enabling revocation in production, compare Firebase Authentication users with `users/{uid}`. Auth accounts whose profiles were deleted by older releases need a revoked profile/`access_revocations/{uid}` record or must be disabled in Firebase Console.
+- Audit existing bed and blood documents for duplicate logical types before relying on canonical IDs for new resources. Existing document IDs remain supported because bookings may reference them; duplicate reconciliation must preserve booking references and live counters.
+- Hold rules temporarily accept both legacy `held_until` bookings and new server-authored `confirmed_at` plus `hold_duration_minutes` bookings. Remove the legacy rule branches only after old browser sessions and active legacy holds have expired.
+
 ## Tech Stack
 
 - **Frontend:** Flutter Web (Dart)
-- **Backend:** Firebase (Auth, Cloud Firestore, Storage)
+- **Backend:** Firebase (Auth and Cloud Firestore)
 - **State Management:** Provider (ChangeNotifier)
 - **Routing:** GoRouter with role-based route guards
-- **Auth:** Firebase Google Sign-In (`signInWithPopup`)
+- **Auth:** Firebase Email/Password + Google Sign-In (`signInWithPopup`)
+- **Prescription Storage:** Private Firestore blob documents (700 KB maximum)
+- **Maps:** flutter_map + OpenStreetMap (free, no API key, real street maps)
+- **Distances:** OSRM road distances (actual driving distance, free API)
 - **Currency:** Bangladeshi Taka (৳) formatting
 
 ## Prerequisites
@@ -54,19 +105,21 @@ flutter pub get
 
 **Authentication:**
 - Go to **Authentication** → **Sign-in method**
-- Enable **Google** provider
-- Set a support email and save
+- Enable **Email/Password** provider
+- Enable **Google** provider → set a support email and save
 
 **Cloud Firestore:**
 - Go to **Firestore Database** → **Create database**
 - Select **Start in test mode** (we'll deploy proper rules later)
 - Choose a region close to your users (e.g., `asia-southeast1`)
 
-**Storage (optional — for prescription uploads):**
-- Go to **Storage** → **Get started**
-- Start in test mode
+### 3. Prescription Images
 
-### 3. Connect Firebase to the Project
+Prescription images are stored as private documents in the `prescription_documents` Firestore collection. No Cloud Storage or billing plan is required. Images are limited to 700 KB and can be read only by their owner or the responsible service admin.
+
+Bookings created before this migration may still contain `prescription_image_url` values. Remove those legacy assets from the Cloudinary dashboard after confirming they are no longer needed; the application no longer creates new Cloudinary uploads.
+
+### 4. Connect Firebase to the Project
 
 ```bash
 firebase login
@@ -75,20 +128,20 @@ flutterfire configure --project=YOUR_PROJECT_ID
 
 This generates/overwrites `lib/firebase_options.dart` with your project's config. Select **Web** when prompted for platforms.
 
-### 4. Deploy Firestore Security Rules
+### 5. Deploy Firestore Security Rules
 
 ```bash
 firebase deploy --only firestore:rules
 ```
 
-This deploys the rules from `firestore.rules` which enforce:
+This deploys `firestore.rules`, which enforces:
 - Public read access for organization/service listings
 - Authenticated users can create bookings (if profile is complete)
-- Org admins can only manage their own organization's data
+- Service admins can only manage their assigned organization and service
 - Super admin has platform-wide access
-- Users can only read their own profile and bookings
+- Users can only read their own profile and bookings and cannot self-assign roles
 
-### 5. Run the App
+### 6. Run the App
 
 ```bash
 flutter run -d chrome
@@ -105,12 +158,16 @@ firebase deploy --only hosting
 
 ## First-Time Operation Guide
 
-### Step 1: First User Becomes Super Admin
+### Step 1: Provision the Initial Super Admin
 
-The **first user** to sign in with Google is automatically promoted to **Super Admin**. This is tracked via a `config/platform` document in Firestore. All subsequent users are created as **patients**.
+All users are created as **patients**. The initial Super Admin must be provisioned through the trusted Firebase Console so an arbitrary first registrant cannot take control of an uninitialized platform.
 
-1. Click **Sign In with Google** on the login page
-2. You'll be redirected to the **Platform Admin Dashboard**
+1. On the login page, register the intended administrator with email or Google. This creates `users/{uid}` with role `patient`.
+2. In Firebase Console, open **Firestore Database** -> `users` -> the intended administrator's UID.
+3. Change `role` to `super_admin` and leave `organization_id` as `null`.
+4. Return to the app. The live profile listener redirects the account to the **Platform Admin Dashboard**.
+
+Client requests cannot create a `super_admin` profile. After the initial trusted provisioning, that Super Admin can assign additional roles from **Manage Users**.
 
 ### Step 2: Load Demo Data
 
@@ -131,7 +188,8 @@ From the Super Admin dashboard:
 1. Go to **Manage Users**
 2. Find a user by email → click the **edit** icon
 3. Select a role:
-   - `hospital_admin` → assign to a hospital
+   - `bed_admin` → assign to a hospital to manage beds and bed requests
+   - `test_admin` → assign to a hospital to manage diagnostic tests
    - `blood_bank_admin` → assign to a blood bank
    - `ambulance_admin` → assign to an ambulance operator
 4. Select the **organization** from the dropdown
@@ -153,7 +211,8 @@ Instead of (or in addition to) demo data:
 | Role | Access |
 |------|--------|
 | **Patient** | Browse all services, make bookings, view booking history |
-| **Hospital Admin** | Manage beds, tests, and booking requests for their hospital |
+| **Bed Admin** | Manage beds and bed booking requests for their hospital |
+| **Diagnostic Test Admin** | Manage diagnostic tests, pricing, and turnaround times for their hospital |
 | **Blood Bank Admin** | Manage blood stock and blood requests for their blood bank |
 | **Ambulance Admin** | Manage fleet, fares, and trip requests for their operator |
 | **Super Admin** | Manage all organizations, assign roles, view all requests, seed data |
@@ -194,7 +253,7 @@ Patient submits request
 ```
 lib/
 ├── main.dart                          # Entry point — Firebase init
-├── app.dart                           # MaterialApp + Providers + GoRouter
+├── app.dart                           # MaterialApp + Providers + cached GoRouter
 ├── config/
 │   ├── routes.dart                    # All routes + guards + admin request views
 │   └── theme.dart                     # Material 3 theme
@@ -207,18 +266,18 @@ lib/
 │   ├── ambulance_model.dart
 │   └── test_model.dart
 ├── providers/                         # ChangeNotifier state management
-│   ├── auth_provider.dart             # Auth state, role checks, org name
+│   ├── auth_provider.dart             # Auth state, role checks, org name, error mapping
 │   ├── booking_provider.dart          # Booking CRUD, confirm/reject/clean
 │   ├── organization_provider.dart     # Org listing and lookup
 │   └── location_provider.dart         # Browser geolocation
 ├── services/                          # Firebase service layer
-│   ├── auth_service.dart              # Google Sign-In via signInWithPopup
+│   ├── auth_service.dart              # Email/Password + Google Sign-In
 │   ├── firestore_service.dart         # Generic Firestore CRUD + transactions
-│   ├── storage_service.dart           # Firebase Storage uploads
+│   ├── prescription_service.dart      # Private Firestore prescription blobs
 │   ├── location_service.dart          # Geolocation API wrapper
 │   └── seed_data_service.dart         # Demo data seeder
 ├── features/
-│   ├── auth/screens/                  # Login screen
+│   ├── auth/screens/                  # Login / Register / Forgot Password
 │   ├── home/screens/                  # Service selection cards
 │   ├── profile/screens/               # User profile editing
 │   ├── bookings/screens/              # My Bookings + Booking Detail
@@ -263,15 +322,15 @@ organizations/{orgId}
 booking_requests/{requestId}
 ├── type, organization_id, organization_name, user_id
 ├── patient_name, contact_number, status, held_until, estimated_price, created_at
-├── bed_type, prescription_image_url           (bed bookings)
-├── blood_type, units_needed, hospital_name, prescribing_doctor  (blood requests)
-└── ambulance_type, pickup_address, destination_address, patient_condition_notes  (ambulance)
+├── bed_id, bed_type, prescription_document_id           (bed bookings)
+├── blood_stock_id, blood_type, units_needed, hospital_id, hospital_name, prescribing_doctor  (blood requests)
+└── ambulance_type, ambulance_reference_id, ambulance_id, pickup_address, destination_hospital_id  (ambulance)
+
+prescription_documents/{requestId}
+└── user_id, organization_id, booking_type, content_type, image_bytes, created_at
 
 users/{uid}
 └── email, name, phone, role, organization_id, profile_complete
-
-config/platform
-└── initialized, initialized_by, initialized_at
 ```
 
 ## Common Issues
@@ -279,18 +338,25 @@ config/platform
 | Issue | Cause | Fix |
 |-------|-------|-----|
 | Google Sign-In opens blank popup | OAuth not configured | Add your domain to Firebase Auth → Authorized domains |
-| Firestore permission denied | Security rules not deployed | Run `firebase deploy --only firestore:rules` |
+| Email sign-in fails silently | Email/Password provider not enabled | Firebase Console → Authentication → Sign-in method → enable Email/Password |
+| "Weak password" error on register | Password too short | Firebase requires at least 6 characters |
+| Firebase permission denied | Security rules not deployed | Run `firebase deploy --only firestore:rules` |
+| `test_admin` or `bed_admin` cannot save data | Production is still using the legacy role rules | Deploy the updated `firestore.rules`; use `hospital_admin` only as a temporary migration role |
+| Super admin cannot remove a user profile | Deployed rules do not allow user document deletion | Deploy the updated `firestore.rules` |
 | Bookings disappear after refresh | Composite index required | Check browser console for Firestore index creation links, or the app handles this by client-side sorting |
-| First user isn't super admin | `config/platform` doc already exists | Delete `config/platform` from Firestore console, then sign in again |
+| Initial administrator is still a patient | Super Admins are not assigned automatically | Provision the intended account through Firebase Console as described in the First-Time Operation Guide |
 | Bed data not loading for admin | Subcollections not seeded | Load demo data from Super Admin dashboard, or manually add bed types |
 
 ## Development Notes
 
-- **No Cloud Functions** — the project runs entirely on Firebase Spark (free tier) with client-side logic
+- **No Cloud Functions** — the project runs on Firebase's free Firestore tier with client-side logic
 - **Lazy expiry** — hold timers are checked client-side on every booking read, not via server-side cron
 - **Denormalized org names** — `organization_name` is stored directly in booking documents to avoid extra reads
 - **Client-side search** — test search and hospital autocomplete filter locally after fetching all records
 - **Currency** — all prices are in Bangladeshi Taka (৳), formatted via `intl` package
+- **Prescription storage** — images are private Firestore blobs capped at 700 KB; booking/image creation and terminal cleanup are atomic
+- **Maps** — flutter_map with OpenStreetMap tiles (free, no API key); color-coded markers (green >5, yellow 1-4, red 0) on all listing screens
+- **Road distances** — uses OSRM Table API to batch-fetch real driving distances (not straight-line); falls back to Haversine if OSRM is unavailable
 
 ## Team Workflow
 
