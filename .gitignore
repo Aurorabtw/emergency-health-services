@@ -37,6 +37,16 @@ migrate_working_dir/
 # Firebase Hosting deploy cache
 .firebase/
 
+# Vercel / prescription API
+.vercel/
+api/node_modules/
+# Never commit real secrets — only api/.env.example is tracked.
+api/.env
+api/.env.*
+!api/.env.example
+*-service-account*.json
+serviceAccount*.json
+
 # Symbolication related
 app.*.symbols
 
@@ -47,3 +57,4 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+.vercel

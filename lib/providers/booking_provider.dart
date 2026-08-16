@@ -4,8 +4,10 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
+import '../config/app_config.dart';
 import '../models/booking_request_model.dart';
 import '../services/firestore_service.dart';
+import '../services/prescription_api_service.dart';
 import '../services/prescription_service.dart';
 import '../services/server_clock_service.dart';
 import '../shared/utils/lazy_expiry.dart';
@@ -13,6 +15,7 @@ import '../shared/utils/lazy_expiry.dart';
 class BookingProvider extends ChangeNotifier {
   final FirestoreService _firestoreService = FirestoreService();
   final ServerClockService _serverClock = ServerClockService();
+  final PrescriptionApiService _prescriptionApi = PrescriptionApiService();
 
   List<BookingRequestModel> _bookings = [];
   bool _isLoading = false;
@@ -1021,6 +1024,30 @@ class BookingProvider extends ChangeNotifier {
   }) async {
     try {
       final id = booking.id.isEmpty ? generateBookingId() : booking.id;
+
+      if (AppConfig.usePrescriptionApi) {
+        // Cloudinary via the Vercel gateway. The gateway verifies the upload and
+        // writes prescription_assets/{id}; we then create the booking, and the
+        // Firestore rules bind the booking to that existing asset.
+        final newBooking = booking.copyWith(id: id, prescriptionAssetId: id);
+        await _prescriptionApi.upload(
+          bookingId: id,
+          organizationId: newBooking.organizationId,
+          bookingType: newBooking.type,
+          bytes: prescriptionBytes,
+          contentType: contentType,
+        );
+        final bookingData = newBooking.toFirestore();
+        bookingData['created_at'] = FieldValue.serverTimestamp();
+        await _firestoreService.db.doc('booking_requests/$id').set(bookingData);
+
+        _bookings.insert(0, newBooking);
+        notifyListeners();
+        return id;
+      }
+
+      // Legacy inline Firestore-blob flow: booking + prescription doc committed
+      // atomically in one batch.
       final newBooking = booking.copyWith(id: id, prescriptionDocumentId: id);
       final bookingData = newBooking.toFirestore();
       bookingData['created_at'] = FieldValue.serverTimestamp();
@@ -1364,8 +1391,18 @@ class BookingProvider extends ChangeNotifier {
   Future<void> clearTerminalBookings() async {
     final terminal = _bookings.where((b) => b.isTerminal).toList();
     for (final booking in terminal) {
+      // Cloudinary-hosted prescriptions are removed by the backend first
+      // (best-effort) so deleting the booking does not orphan the image.
+      if (booking.prescriptionAssetId != null && AppConfig.usePrescriptionApi) {
+        try {
+          await _prescriptionApi.delete(booking.id);
+        } catch (_) {
+          // Continue clearing even if remote cleanup fails.
+        }
+      }
       final batch = _firestoreService.db.batch();
-      if (booking.prescriptionDocumentId != null) {
+      if (booking.prescriptionDocumentId != null &&
+          booking.prescriptionAssetId == null) {
         batch.delete(
           _firestoreService.db.doc(
             'prescription_documents/${booking.prescriptionDocumentId}',

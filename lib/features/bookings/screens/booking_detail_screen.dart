@@ -281,6 +281,7 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
                           borderRadius: BorderRadius.circular(8),
                           child: PrescriptionImage(
                             documentId: booking.prescriptionDocumentId,
+                            assetBookingId: booking.prescriptionAssetId,
                             legacyUrl: booking.prescriptionImageUrl,
                             height: 200,
                           ),

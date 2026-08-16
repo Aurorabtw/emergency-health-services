@@ -226,7 +226,7 @@ class _BedBookingScreenState extends State<BedBookingScreen> {
                     ),
                     const Divider(height: 32),
                     DropdownButtonFormField<String>(
-                      key: ValueKey(widget.organizationId),
+                      key: ValueKey('bed-type-${widget.organizationId}'),
                       initialValue: _selectedBedId,
                       decoration: const InputDecoration(
                         labelText: 'Bed Type',
@@ -301,7 +301,7 @@ class _BedBookingScreenState extends State<BedBookingScreen> {
                     ),
                     const SizedBox(height: 16),
                     PrescriptionUploadField(
-                      key: ValueKey(widget.organizationId),
+                      key: ValueKey('prescription-${widget.organizationId}'),
                       onChanged: (bytes, _, contentType) => setState(() {
                         _prescriptionImage = bytes;
                         _prescriptionContentType = contentType;

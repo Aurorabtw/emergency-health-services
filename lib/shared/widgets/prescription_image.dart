@@ -2,16 +2,24 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
+import '../../services/prescription_api_service.dart';
 import '../../services/prescription_service.dart';
 
+/// Renders a prescription image from any of the supported sources:
+/// - [assetBookingId]: Cloudinary-hosted, fetched via a short-lived signed URL
+///   from the Vercel gateway (preferred, current flow).
+/// - [documentId]: legacy inline Firestore blob.
+/// - [legacyUrl]: pre-migration public URL.
 class PrescriptionImage extends StatefulWidget {
   final String? documentId;
+  final String? assetBookingId;
   final String? legacyUrl;
   final double? height;
 
   const PrescriptionImage({
     super.key,
     this.documentId,
+    this.assetBookingId,
     this.legacyUrl,
     this.height,
   });
@@ -22,23 +30,37 @@ class PrescriptionImage extends StatefulWidget {
 
 class _PrescriptionImageState extends State<PrescriptionImage> {
   Future<Uint8List>? _download;
+  Future<String>? _assetUrl;
 
   @override
   void initState() {
     super.initState();
-    _setDownload();
+    _setSources();
   }
 
   @override
   void didUpdateWidget(PrescriptionImage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.documentId != oldWidget.documentId) _setDownload();
+    if (widget.documentId != oldWidget.documentId ||
+        widget.assetBookingId != oldWidget.assetBookingId) {
+      _setSources();
+    }
   }
 
-  void _setDownload() {
-    _download = widget.documentId == null
-        ? null
-        : PrescriptionService().download(widget.documentId!);
+  void _setSources() {
+    // Prefer the Cloudinary asset. A persisted booking only ever has one source,
+    // but a freshly created in-memory model can briefly carry both — pick the
+    // asset and create exactly one future so no failing future goes unobserved.
+    if (widget.assetBookingId != null) {
+      _assetUrl = PrescriptionApiService().viewUrl(widget.assetBookingId!);
+      _download = null;
+    } else if (widget.documentId != null) {
+      _download = PrescriptionService().download(widget.documentId!);
+      _assetUrl = null;
+    } else {
+      _download = null;
+      _assetUrl = null;
+    }
   }
 
   @override
@@ -48,10 +70,7 @@ class _PrescriptionImageState extends State<PrescriptionImage> {
         future: _download,
         builder: (context, snapshot) {
           if (snapshot.connectionState != ConnectionState.done) {
-            return SizedBox(
-              height: widget.height ?? 160,
-              child: const Center(child: CircularProgressIndicator()),
-            );
+            return _Loading(height: widget.height);
           }
           if (snapshot.hasError || snapshot.data == null) {
             return _Unavailable(height: widget.height);
@@ -60,6 +79,26 @@ class _PrescriptionImageState extends State<PrescriptionImage> {
             snapshot.data!,
             height: widget.height,
             fit: BoxFit.contain,
+          );
+        },
+      );
+    }
+
+    if (_assetUrl != null) {
+      return FutureBuilder<String>(
+        future: _assetUrl,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState != ConnectionState.done) {
+            return _Loading(height: widget.height);
+          }
+          if (snapshot.hasError || snapshot.data == null) {
+            return _Unavailable(height: widget.height);
+          }
+          return Image.network(
+            snapshot.data!,
+            height: widget.height,
+            fit: BoxFit.contain,
+            errorBuilder: (_, _, _) => _Unavailable(height: widget.height),
           );
         },
       );
@@ -80,17 +119,21 @@ class _PrescriptionImageState extends State<PrescriptionImage> {
 
 class PrescriptionDialogButton extends StatelessWidget {
   final String? documentId;
+  final String? assetBookingId;
   final String? legacyUrl;
 
   const PrescriptionDialogButton({
     super.key,
     this.documentId,
+    this.assetBookingId,
     this.legacyUrl,
   });
 
   @override
   Widget build(BuildContext context) {
-    if (documentId == null && legacyUrl == null) return const SizedBox.shrink();
+    if (documentId == null && assetBookingId == null && legacyUrl == null) {
+      return const SizedBox.shrink();
+    }
     return Padding(
       padding: const EdgeInsets.only(top: 8),
       child: TextButton.icon(
@@ -118,6 +161,7 @@ class PrescriptionDialogButton extends StatelessWidget {
                         padding: const EdgeInsets.all(16),
                         child: PrescriptionImage(
                           documentId: documentId,
+                          assetBookingId: assetBookingId,
                           legacyUrl: legacyUrl,
                         ),
                       ),
@@ -131,6 +175,20 @@ class PrescriptionDialogButton extends StatelessWidget {
         icon: const Icon(Icons.image),
         label: const Text('View Prescription'),
       ),
+    );
+  }
+}
+
+class _Loading extends StatelessWidget {
+  final double? height;
+
+  const _Loading({this.height});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: height ?? 160,
+      child: const Center(child: CircularProgressIndicator()),
     );
   }
 }

@@ -325,6 +325,7 @@ class _BedRequestsScreenState extends State<BedRequestsScreen> {
                             ),
                             PrescriptionDialogButton(
                               documentId: booking.prescriptionDocumentId,
+                              assetBookingId: booking.prescriptionAssetId,
                               legacyUrl: booking.prescriptionImageUrl,
                             ),
                             if (booking.isPending) ...[

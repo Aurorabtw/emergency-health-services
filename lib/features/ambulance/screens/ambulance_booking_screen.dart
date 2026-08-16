@@ -285,7 +285,7 @@ class _AmbulanceBookingScreenState extends State<AmbulanceBookingScreen> {
                     ),
                     const Divider(height: 32),
                     DropdownButtonFormField<String>(
-                      key: ValueKey(widget.organizationId),
+                      key: ValueKey('ambulance-type-${widget.organizationId}'),
                       initialValue: _selectedType,
                       decoration: const InputDecoration(
                         labelText: 'Ambulance Type',
@@ -352,7 +352,7 @@ class _AmbulanceBookingScreenState extends State<AmbulanceBookingScreen> {
                     ),
                     const SizedBox(height: 12),
                     Autocomplete<OrganizationModel>(
-                      key: ValueKey(widget.organizationId),
+                      key: ValueKey('destination-${widget.organizationId}'),
                       optionsBuilder: (textEditingValue) {
                         if (textEditingValue.text.isEmpty) {
                           return const Iterable.empty();
@@ -449,7 +449,7 @@ class _AmbulanceBookingScreenState extends State<AmbulanceBookingScreen> {
                     ),
                     const SizedBox(height: 16),
                     PrescriptionUploadField(
-                      key: ValueKey(widget.organizationId),
+                      key: ValueKey('prescription-${widget.organizationId}'),
                       onChanged: (bytes, _, contentType) => setState(() {
                         _prescriptionImage = bytes;
                         _prescriptionContentType = contentType;

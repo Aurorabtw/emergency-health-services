@@ -279,6 +279,7 @@ class _BloodRequestsScreenState extends State<BloodRequestsScreen> {
                             ),
                             PrescriptionDialogButton(
                               documentId: booking.prescriptionDocumentId,
+                              assetBookingId: booking.prescriptionAssetId,
                               legacyUrl: booking.prescriptionImageUrl,
                             ),
                             if (booking.isPending) ...[

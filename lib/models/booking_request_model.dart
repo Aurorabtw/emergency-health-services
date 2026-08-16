@@ -19,6 +19,9 @@ class BookingRequestModel {
   final String? bedId;
   final String? bedType;
   final String? prescriptionDocumentId;
+  // Set when the prescription is stored via the Vercel/Cloudinary upload gateway
+  // instead of an inline Firestore blob. Equals the booking id.
+  final String? prescriptionAssetId;
   // Read-only compatibility for prescriptions uploaded before Firestore migration.
   final String? prescriptionImageUrl;
   final DateTime? admittedAt;
@@ -75,6 +78,7 @@ class BookingRequestModel {
     this.bedId,
     this.bedType,
     this.prescriptionDocumentId,
+    this.prescriptionAssetId,
     this.prescriptionImageUrl,
     this.admittedAt,
     this.dischargedAt,
@@ -219,6 +223,7 @@ class BookingRequestModel {
       bedId: optionalString('bed_id'),
       bedType: optionalString('bed_type'),
       prescriptionDocumentId: optionalString('prescription_document_id'),
+      prescriptionAssetId: optionalString('prescription_asset_id'),
       prescriptionImageUrl: optionalString('prescription_image_url'),
       admittedAt: optionalDate('admitted_at'),
       dischargedAt: optionalDate('discharged_at'),
@@ -286,7 +291,11 @@ class BookingRequestModel {
     if (type == 'bed') {
       map['bed_id'] = bedId;
       map['bed_type'] = bedType;
-      map['prescription_document_id'] = prescriptionDocumentId;
+      if (prescriptionAssetId != null) {
+        map['prescription_asset_id'] = prescriptionAssetId;
+      } else {
+        map['prescription_document_id'] = prescriptionDocumentId;
+      }
       if (admittedAt != null) {
         map['admitted_at'] = Timestamp.fromDate(admittedAt!);
       }
@@ -305,7 +314,11 @@ class BookingRequestModel {
       map['pickup_address'] = pickupAddress;
       map['destination_hospital_id'] = destinationHospitalId;
       map['destination_address'] = destinationAddress;
-      map['prescription_document_id'] = prescriptionDocumentId;
+      if (prescriptionAssetId != null) {
+        map['prescription_asset_id'] = prescriptionAssetId;
+      } else {
+        map['prescription_document_id'] = prescriptionDocumentId;
+      }
     } else if (type == 'blood') {
       map['blood_stock_id'] = bloodStockId;
       map['blood_type'] = bloodType;
@@ -313,7 +326,11 @@ class BookingRequestModel {
       map['hospital_id'] = hospitalId;
       map['hospital_name'] = hospitalName;
       map['prescribing_doctor'] = prescribingDoctor;
-      map['prescription_document_id'] = prescriptionDocumentId;
+      if (prescriptionAssetId != null) {
+        map['prescription_asset_id'] = prescriptionAssetId;
+      } else {
+        map['prescription_document_id'] = prescriptionDocumentId;
+      }
     } else if (type == 'test') {
       map['test_id'] = testId;
       map['test_name'] = testName;
@@ -354,6 +371,7 @@ class BookingRequestModel {
     String? bedId,
     String? bedType,
     String? prescriptionDocumentId,
+    String? prescriptionAssetId,
     String? prescriptionImageUrl,
     DateTime? admittedAt,
     DateTime? dischargedAt,
@@ -404,6 +422,7 @@ class BookingRequestModel {
       bedType: bedType ?? this.bedType,
       prescriptionDocumentId:
           prescriptionDocumentId ?? this.prescriptionDocumentId,
+      prescriptionAssetId: prescriptionAssetId ?? this.prescriptionAssetId,
       prescriptionImageUrl: prescriptionImageUrl ?? this.prescriptionImageUrl,
       admittedAt: admittedAt ?? this.admittedAt,
       dischargedAt: dischargedAt ?? this.dischargedAt,

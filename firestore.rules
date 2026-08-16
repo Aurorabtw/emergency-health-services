@@ -356,6 +356,36 @@ service cloud.firestore {
         && prescription.created_at == request.time;
     }
 
+    function usesPrescriptionAsset() {
+      return request.resource.data.get('prescription_asset_id', null) != null;
+    }
+
+    function usesPrescriptionDocument() {
+      return request.resource.data.get('prescription_document_id', null) != null;
+    }
+
+    // New Cloudinary-backed flow: the image lives in Cloudinary and the metadata
+    // doc under prescription_assets/{requestId} is written by the trusted backend
+    // (Admin SDK) BEFORE the booking is created. The booking only has to reference
+    // an existing, matching asset owned by the same user.
+    function hasValidPrescriptionAsset(requestId) {
+      let assetPath = /databases/$(database)/documents/prescription_assets/$(requestId);
+      return request.resource.data.get('prescription_asset_id', null) == requestId
+        && request.resource.data.get('prescription_document_id', null) == null
+        && exists(assetPath)
+        && get(assetPath).data.user_id == request.auth.uid
+        && get(assetPath).data.organization_id == request.resource.data.organization_id
+        && get(assetPath).data.booking_type == request.resource.data.type;
+    }
+
+    // A booking must carry exactly one prescription reference: either the new
+    // Cloudinary asset id, or the legacy inline Firestore blob document.
+    function hasValidPrescription(requestId) {
+      return usesPrescriptionAsset()
+        ? (!usesPrescriptionDocument() && hasValidPrescriptionAsset(requestId))
+        : (usesPrescriptionDocument() && hasValidPrescriptionDocument(requestId));
+    }
+
     function isValidCoordinatePair(latitude, longitude) {
       return (latitude == null && longitude == null)
         || (latitude is number
@@ -382,7 +412,8 @@ service cloud.firestore {
           'created_at',
           'bed_id',
           'bed_type',
-          'prescription_document_id'
+          'prescription_document_id',
+          'prescription_asset_id'
         ])
         && isValidBookingBase('hospital')
         && data.type == 'bed'
@@ -391,7 +422,7 @@ service cloud.firestore {
         && data.bed_type is string
         && data.bed_type.size() > 0
         && data.bed_type.size() <= 80
-        && hasValidPrescriptionDocument(requestId)
+        && hasValidPrescription(requestId)
         && exists(bedPath)
         && get(bedPath).data.type == data.bed_type
         && get(bedPath).data.price_per_day is number
@@ -425,7 +456,8 @@ service cloud.firestore {
           'hospital_id',
           'hospital_name',
           'prescribing_doctor',
-          'prescription_document_id'
+          'prescription_document_id',
+          'prescription_asset_id'
         ])
         && isValidBookingBase('blood_bank')
         && data.type == 'blood'
@@ -442,7 +474,7 @@ service cloud.firestore {
         && data.prescribing_doctor is string
         && data.prescribing_doctor.size() >= 2
         && data.prescribing_doctor.size() <= 120
-        && hasValidPrescriptionDocument(requestId)
+        && hasValidPrescription(requestId)
         && exists(stockPath)
         && get(stockPath).data.blood_type == data.blood_type
         && get(stockPath).data.processing_fee_per_unit is number
@@ -502,7 +534,8 @@ service cloud.firestore {
           'pickup_address',
           'destination_hospital_id',
           'destination_address',
-          'prescription_document_id'
+          'prescription_document_id',
+          'prescription_asset_id'
         ])
         && isValidBookingBase('ambulance_operator')
         && data.type == 'ambulance'
@@ -520,7 +553,7 @@ service cloud.firestore {
             && data.patient_condition_notes.size() <= 1000))
         && isValidCoordinatePair(data.pickup_lat, data.pickup_lng)
         && isValidAmbulanceDestination(data)
-        && hasValidPrescriptionDocument(requestId)
+        && hasValidPrescription(requestId)
         && exists(ambulancePath)
         && get(ambulancePath).data.type == data.ambulance_type
         && get(ambulancePath).data.status == 'available'
@@ -1293,12 +1326,11 @@ service cloud.firestore {
               && request.resource.data.active_request_id == resource.data.active_request_id
               && request.resource.data.last_queue_action_id == resource.data.last_queue_action_id
               && request.resource.data.last_estimated_arrival > resource.data.last_estimated_arrival
-              && (
+              && request.resource.data.last_estimated_arrival <=
                 (resource.data.last_estimated_arrival > request.time
-                  && request.resource.data.last_estimated_arrival == resource.data.last_estimated_arrival + duration.value(queueSlotMinutes(orgId, request.resource.data.test_id), 'm'))
-                || (resource.data.last_estimated_arrival <= request.time
-                  && request.resource.data.last_estimated_arrival <= request.time + duration.value(queueSlotMinutes(orgId, request.resource.data.test_id) + 5, 'm'))
-              ))
+                  ? resource.data.last_estimated_arrival
+                  : request.time)
+                + duration.value(queueSlotMinutes(orgId, request.resource.data.test_id) + 5, 'm'))
             || (!currentDailyCapacityExists(orgId, request.resource.data)
               && request.resource.data.last_serial == 1
               && request.resource.data.last_called_serial == 0
@@ -1391,6 +1423,24 @@ service cloud.firestore {
           || isSuperAdmin());
 
       allow update: if false;
+    }
+
+    match /prescription_assets/{documentId} {
+      // Metadata for a Cloudinary-hosted prescription. The image itself is NOT
+      // stored here — only a public_id that is useless without a server-signed,
+      // short-lived delivery URL issued by the backend.
+      allow read: if isActiveUser() && (
+        resource.data.user_id == request.auth.uid
+        || canManageBooking(
+          resource.data.organization_id,
+          resource.data.booking_type
+        )
+        || isSuperAdmin()
+      );
+
+      // Created, updated and deleted ONLY by the trusted backend via the Firebase
+      // Admin SDK, which bypasses these rules. No client may ever write here.
+      allow create, update, delete: if false;
     }
 
     // Booking requests

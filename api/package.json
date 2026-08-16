@@ -1,0 +1,13 @@
+{
+  "name": "prescription-api",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Vercel serverless gateway for private prescription uploads (Cloudinary + Firebase Admin).",
+  "engines": {
+    "node": "20.x"
+  },
+  "dependencies": {
+    "cloudinary": "^2.5.1",
+    "firebase-admin": "^13.2.0"
+  }
+}
