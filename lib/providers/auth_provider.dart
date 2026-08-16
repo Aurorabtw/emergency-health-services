@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import '../models/user_model.dart';
 import '../services/auth_service.dart';
 import '../services/firestore_service.dart';
+import '../shared/utils/validators.dart';
 
 class AuthProvider extends ChangeNotifier {
   final AuthService _authService = AuthService();
@@ -18,6 +19,7 @@ class AuthProvider extends ChangeNotifier {
   String? _error;
   StreamSubscription? _authSub;
   StreamSubscription? _userSub;
+  int _authGeneration = 0;
 
   UserModel? get user => _userModel;
   String? get organizationName => _organizationName;
@@ -32,7 +34,8 @@ class AuthProvider extends ChangeNotifier {
   bool get isAmbulanceAdmin => _userModel?.isAmbulanceAdmin ?? false;
   bool get isSuperAdmin => _userModel?.isSuperAdmin ?? false;
   bool get isProfileComplete =>
-      _userModel?.hasUsableContactProfile ?? false;
+      (_userModel?.profileComplete ?? false) &&
+      (_userModel?.hasUsableContactProfile ?? false);
   String? get error => _error;
 
   AuthProvider() {
@@ -49,7 +52,9 @@ class AuthProvider extends ChangeNotifier {
   }
 
   Future<void> _onAuthStateChanged(User? firebaseUser) async {
+    final generation = ++_authGeneration;
     await _userSub?.cancel();
+    if (generation != _authGeneration) return;
     _userSub = null;
 
     if (firebaseUser == null) {
@@ -64,32 +69,49 @@ class AuthProvider extends ChangeNotifier {
       final doc = await _firestoreService.getDocument(
         'users/${firebaseUser.uid}',
       );
+      if (!_isCurrentAuthRequest(firebaseUser.uid, generation)) return;
 
       if (doc.exists) {
         _userModel = UserModel.fromFirestore(doc);
       } else {
-        final newUser = UserModel(
-          uid: firebaseUser.uid,
-          email: firebaseUser.email ?? '',
-          name: firebaseUser.displayName,
-          role: 'patient',
-          profileComplete: false,
+        if (!_isNewFirebaseAccount(firebaseUser)) {
+          await _rejectCurrentSession(
+            'This account does not have an active platform profile. Contact support.',
+            generation,
+          );
+          return;
+        }
+        await _ensureNewUserProfile(
+          firebaseUser,
+          preferredName: firebaseUser.displayName,
         );
-        await _firestoreService.setDocument(
+        if (!_isCurrentAuthRequest(firebaseUser.uid, generation)) return;
+        final createdProfile = await _firestoreService.getDocument(
           'users/${firebaseUser.uid}',
-          newUser.toFirestore(),
         );
-
-        _userModel = newUser;
+        if (!createdProfile.exists) {
+          throw StateError('The new user profile could not be created.');
+        }
+        _userModel = UserModel.fromFirestore(createdProfile);
       }
 
-      _listenToUserProfile(firebaseUser.uid);
+      if (_userModel!.accessRevoked) {
+        await _rejectCurrentSession(
+          'Your platform access has been revoked. Contact support.',
+          generation,
+        );
+        return;
+      }
+
+      _listenToUserProfile(firebaseUser.uid, generation);
     } catch (e) {
+      if (!_isCurrentAuthRequest(firebaseUser.uid, generation)) return;
       debugPrint('Auth state change error: $e');
       _userModel = null;
       _organizationName = null;
     }
 
+    if (!_isCurrentAuthRequest(firebaseUser.uid, generation)) return;
     _isLoading = false;
     notifyListeners();
     if (_userModel != null) {
@@ -102,14 +124,28 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
-  void _listenToUserProfile(String uid) {
+  void _listenToUserProfile(String uid, int generation) {
     _userSub = _firestoreService
         .streamDocument('users/$uid')
         .listen(
           (doc) async {
-            if (!doc.exists || _authService.currentUser?.uid != uid) return;
+            if (!_isCurrentAuthRequest(uid, generation)) return;
+            if (!doc.exists) {
+              await _rejectCurrentSession(
+                'This account does not have an active platform profile. Contact support.',
+                generation,
+              );
+              return;
+            }
 
             final updatedUser = UserModel.fromFirestore(doc);
+            if (updatedUser.accessRevoked) {
+              await _rejectCurrentSession(
+                'Your platform access has been revoked. Contact support.',
+                generation,
+              );
+              return;
+            }
             final organizationChanged =
                 updatedUser.organizationId != _userModel?.organizationId;
             _userModel = updatedUser;
@@ -211,19 +247,14 @@ class AuthProvider extends ChangeNotifier {
       // Create Firestore user doc (will be picked up by _onAuthStateChanged,
       // but we set name + profileComplete here since we have the name)
       if (credential.user != null) {
-        final newUser = UserModel(
-          uid: credential.user!.uid,
-          email: email.trim(),
-          name: name.trim(),
-          role: 'patient',
-          profileComplete: false,
+        await _ensureNewUserProfile(
+          credential.user!,
+          preferredName: name,
         );
-        await _firestoreService.setDocument(
+        final profile = await _firestoreService.getDocument(
           'users/${credential.user!.uid}',
-          newUser.toFirestore(),
         );
-
-        _userModel = newUser;
+        _userModel = UserModel.fromFirestore(profile);
         _isLoading = false;
         notifyListeners();
       }
@@ -304,8 +335,7 @@ class AuthProvider extends ChangeNotifier {
       throw StateError('No authenticated user profile is available.');
     }
     final trimmedName = name.trim();
-    final trimmedPhone = phone.trim();
-    final cleanedPhone = trimmedPhone.replaceAll(RegExp(r'[\s\-\(\)]'), '');
+    final cleanedPhone = Validators.normalizePhone(phone);
     final complete = trimmedName.length >= 2 &&
         trimmedName.length <= 80 &&
         RegExp(r'^\+?\d{10,15}$').hasMatch(cleanedPhone);
@@ -315,13 +345,13 @@ class AuthProvider extends ChangeNotifier {
 
     await _firestoreService.updateDocument('users/${_userModel!.uid}', {
       'name': trimmedName,
-      'phone': trimmedPhone,
+      'phone': cleanedPhone,
       'profile_complete': complete,
     });
 
     _userModel = _userModel!.copyWith(
       name: trimmedName,
-      phone: trimmedPhone,
+      phone: cleanedPhone,
       profileComplete: complete,
     );
     notifyListeners();
@@ -329,18 +359,88 @@ class AuthProvider extends ChangeNotifier {
 
   Future<void> refreshUser() async {
     if (_userModel == null) return;
-    final doc = await _firestoreService.getDocument('users/${_userModel!.uid}');
-    if (doc.exists) {
-      _userModel = UserModel.fromFirestore(doc);
+    final uid = _userModel!.uid;
+    final generation = _authGeneration;
+    final doc = await _firestoreService.getDocument('users/$uid');
+    if (!_isCurrentAuthRequest(uid, generation)) return;
+    if (!doc.exists) {
+      await _rejectCurrentSession(
+        'This account does not have an active platform profile. Contact support.',
+        generation,
+      );
+      return;
+    }
+    final refreshedUser = UserModel.fromFirestore(doc);
+    if (refreshedUser.accessRevoked) {
+      await _rejectCurrentSession(
+        'Your platform access has been revoked. Contact support.',
+        generation,
+      );
+      return;
+    }
+    _userModel = refreshedUser;
+    if (_isCurrentAuthRequest(uid, generation)) {
       notifyListeners();
       await _refreshOrganizationName(
-        _userModel!.uid,
+        uid,
         _userModel?.organizationId,
       );
     }
   }
 
   // ── Helpers ──
+
+  bool _isCurrentAuthRequest(String uid, int generation) {
+    return generation == _authGeneration &&
+        _authService.currentUser?.uid == uid;
+  }
+
+  bool _isNewFirebaseAccount(User user) {
+    final createdAt = user.metadata.creationTime;
+    final lastSignIn = user.metadata.lastSignInTime;
+    if (createdAt == null || lastSignIn == null) return false;
+    return lastSignIn.difference(createdAt).abs() < const Duration(seconds: 5);
+  }
+
+  Future<void> _ensureNewUserProfile(
+    User firebaseUser, {
+    String? preferredName,
+  }) async {
+    final trimmedName = preferredName?.trim();
+    final validName = trimmedName != null &&
+            trimmedName.length >= 2 &&
+            trimmedName.length <= 80
+        ? trimmedName
+        : null;
+    final userRef = _firestoreService.db.doc('users/${firebaseUser.uid}');
+    await _firestoreService.runTransaction((transaction) async {
+      final current = await transaction.get(userRef);
+      if (!current.exists) {
+        transaction.set(
+          userRef,
+          UserModel(
+            uid: firebaseUser.uid,
+            email: firebaseUser.email ?? '',
+            name: validName,
+            role: 'patient',
+            profileComplete: false,
+          ).toFirestore(),
+        );
+      } else if (validName != null && current.data()?['name'] != validName) {
+        transaction.update(userRef, {'name': validName});
+      }
+    });
+  }
+
+  Future<void> _rejectCurrentSession(String message, int generation) async {
+    if (generation != _authGeneration) return;
+    _error = message;
+    _userModel = null;
+    _organizationName = null;
+    _isLoading = false;
+    notifyListeners();
+    await _authService.signOut();
+  }
 
   String _mapAuthError(String code) {
     switch (code) {

@@ -10,6 +10,7 @@ class AmbulanceProvider extends ChangeNotifier {
   Map<String, List<AmbulanceModel>> _orgAmbulances = {};
   bool _isLoading = false;
   String? _error;
+  int _fetchGeneration = 0;
 
   Map<String, List<AmbulanceModel>> get orgAmbulances => _orgAmbulances;
   bool get isLoading => _isLoading;
@@ -18,6 +19,7 @@ class AmbulanceProvider extends ChangeNotifier {
   List<AmbulanceModel> getAmbulancesForOrg(String orgId) => _orgAmbulances[orgId] ?? [];
 
   Future<void> fetchAmbulancesForOperators(List<OrganizationModel> operators) async {
+    final generation = ++_fetchGeneration;
     // Stale-while-revalidate: only show a skeleton on the first load.
     if (_orgAmbulances.isEmpty) {
       _isLoading = true;
@@ -26,34 +28,58 @@ class AmbulanceProvider extends ChangeNotifier {
     _error = null;
 
     try {
-      // One collectionGroup query fetches every operator's fleet in a single
-      // round-trip, instead of one request per operator.
-      final orgIds = operators.map((o) => o.id).toSet();
-      final snapshot = await _firestoreService.getCollectionGroup('ambulances');
-      final map = {for (final id in orgIds) id: <AmbulanceModel>[]};
-      for (final doc in snapshot.docs) {
-        final orgId = doc.reference.parent.parent?.id;
-        if (orgId == null || !map.containsKey(orgId)) continue;
-        map[orgId]!.add(AmbulanceModel.fromFirestore(doc, orgId));
+      final map = <String, List<AmbulanceModel>>{};
+      for (var start = 0; start < operators.length; start += 8) {
+        final end = (start + 8).clamp(0, operators.length);
+        final results = await Future.wait(
+          operators.sublist(start, end).map((operator) async {
+            final snapshot = await _firestoreService.getCollection(
+              'organizations/${operator.id}/ambulances',
+              limit: 101,
+            );
+            if (snapshot.docs.length > 100) {
+              throw StateError(
+                '${operator.name} has more than 100 ambulances; use an organization-specific paged view.',
+              );
+            }
+            return MapEntry(
+              operator.id,
+              snapshot.docs
+                  .map(
+                    (doc) => AmbulanceModel.fromFirestore(doc, operator.id),
+                  )
+                  .toList(),
+            );
+          }),
+        );
+        if (generation != _fetchGeneration) return;
+        map.addEntries(results);
       }
       _orgAmbulances = map;
     } catch (e) {
+      if (generation != _fetchGeneration) return;
       _error = 'Failed to load ambulances: $e';
     }
 
+    if (generation != _fetchGeneration) return;
     _isLoading = false;
     notifyListeners();
   }
 
   Future<List<AmbulanceModel>> fetchAmbulancesForOrg(String orgId) async {
+    final generation = ++_fetchGeneration;
     try {
       final snapshot = await _firestoreService.getCollection('organizations/$orgId/ambulances');
       final ambulances = snapshot.docs.map((doc) => AmbulanceModel.fromFirestore(doc, orgId)).toList();
+      if (generation != _fetchGeneration) return ambulances;
       _orgAmbulances[orgId] = ambulances;
+      _isLoading = false;
       notifyListeners();
       return ambulances;
     } catch (e) {
+      if (generation != _fetchGeneration) return [];
       _error = 'Failed to load ambulances: $e';
+      _isLoading = false;
       notifyListeners();
       return [];
     }

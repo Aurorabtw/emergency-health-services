@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hospital_services/models/booking_request_model.dart';
+import 'package:hospital_services/models/organization_model.dart';
 import 'package:hospital_services/models/test_model.dart';
 import 'package:hospital_services/models/user_model.dart';
 import 'package:hospital_services/shared/utils/validators.dart';
@@ -50,10 +51,56 @@ void main() {
 
     expect(incomplete.hasUsableContactProfile, isFalse);
     expect(complete.hasUsableContactProfile, isTrue);
+    expect(Validators.normalizePhone('+880 (171) 234-5678'), '+8801712345678');
+  });
+
+  test('bed admission remains active until discharge', () {
+    final admitted = BookingRequestModel(
+      id: 'bed-admission',
+      type: 'bed',
+      organizationId: 'hospital-id',
+      userId: 'patient-id',
+      patientName: 'Patient',
+      contactNumber: '01700000000',
+      status: 'admitted',
+      createdAt: DateTime(2026),
+      bedId: 'general',
+      bedType: 'General',
+      admittedAt: DateTime(2026, 1, 2),
+    );
+
+    expect(admitted.isTerminal, isFalse);
+    expect(admitted.copyWith(status: 'discharged').isTerminal, isTrue);
+    expect(admitted.toFirestore()['admitted_at'], isNotNull);
   });
 
   test('unknown roles are not presented as patients', () {
     expect(userWithRole('unexpected_role').roleLabel, 'Unknown Role');
+  });
+
+  test('organization lifecycle distinguishes active and archive locks', () {
+    final active = OrganizationModel(
+      id: 'hospital-id',
+      type: 'hospital',
+      name: 'Hospital',
+      address: 'Mirpur',
+      latitude: 23.8,
+      longitude: 90.3,
+      phone: '01700000000',
+      createdAt: DateTime(2026),
+      updatedAt: DateTime(2026),
+    );
+    final archiving = active.copyWith(
+      lifecycleState: 'archiving',
+      archiveLockAt: DateTime(2026, 1, 2),
+      archiveLockBy: 'admin-id',
+    );
+
+    expect(active.isActive, isTrue);
+    expect(archiving.isActive, isFalse);
+    expect(archiving.isArchiving, isTrue);
+    expect(archiving.toFirestore()['archive_lock_by'], 'admin-id');
+    expect(archiving.copyWith(clearArchiveLock: true).archiveLockAt, isNull);
   });
 
   test('ambulance booking stores its assigned vehicle', () {
@@ -76,10 +123,7 @@ void main() {
       booking.toFirestore()['ambulance_reference_id'],
       'available-vehicle-id',
     );
-    expect(
-      booking.toFirestore()['prescription_document_id'],
-      'booking-id',
-    );
+    expect(booking.toFirestore()['prescription_document_id'], 'booking-id');
   });
 
   test('bed and blood bookings preserve authoritative references', () {
@@ -117,15 +161,17 @@ void main() {
     expect(bed['bed_id'], 'bed-id');
     expect(blood['blood_stock_id'], 'stock-id');
     expect(blood['hospital_id'], 'hospital-id');
-    expect(
-      blood['prescription_document_id'],
-      'blood-booking-id',
-    );
+    expect(blood['prescription_document_id'], 'blood-booking-id');
   });
 
   test('positive integer validation rejects zero units', () {
     expect(Validators.validatePositiveInt('0', 'Units'), isNotNull);
     expect(Validators.validatePositiveInt('1', 'Units'), isNull);
+  });
+
+  test('non-negative inventory validation accepts zero', () {
+    expect(Validators.validateNonNegativeInt('0', 'Units'), isNull);
+    expect(Validators.validateNonNegativeInt('-1', 'Units'), isNotNull);
   });
 
   test('diagnostic test stores its queue slot duration', () {

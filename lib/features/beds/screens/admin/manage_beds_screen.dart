@@ -16,24 +16,67 @@ class ManageBedsScreen extends StatefulWidget {
 }
 
 class _ManageBedsScreenState extends State<ManageBedsScreen> {
+  static const _bedTypes = ['General', 'ICU', 'NICU'];
   String? _orgId;
+  String? _scopeKey;
+  bool _isScopeLoading = false;
+  int _scopeGeneration = 0;
 
   @override
-  void initState() {
-    super.initState();
-    _orgId = context.read<AuthProvider>().user?.organizationId;
-    if (_orgId != null) {
-      context.read<BedProvider>().fetchBedsForOrg(_orgId!);
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final auth = context.watch<AuthProvider>();
+    final user = auth.user;
+    final scopeKey = '${user?.uid}|${user?.role}|${user?.organizationId}';
+    if (scopeKey == _scopeKey) return;
+    _scopeKey = scopeKey;
+    _orgId = auth.isBedAdmin ? user?.organizationId : null;
+    _isScopeLoading = _orgId != null;
+    final generation = ++_scopeGeneration;
+    final organizationId = _orgId;
+    if (organizationId != null) {
+      Future.microtask(() => _loadScope(organizationId, generation));
     }
   }
 
+  Future<void> _loadScope(String organizationId, int generation) async {
+    if (!_isCurrentScope(organizationId, generation)) return;
+    await context.read<BedProvider>().fetchBedsForOrg(organizationId);
+    if (!_isCurrentScope(organizationId, generation)) return;
+    setState(() => _isScopeLoading = false);
+  }
+
+  bool _isCurrentScope(String organizationId, int generation) {
+    if (!mounted) return false;
+    final auth = context.read<AuthProvider>();
+    return generation == _scopeGeneration &&
+        _orgId == organizationId &&
+        auth.isBedAdmin &&
+        auth.user?.organizationId == organizationId;
+  }
+
   void _showBedForm({BedTypeModel? existing}) {
+    final organizationId = _orgId;
+    final generation = _scopeGeneration;
+    if (organizationId == null) return;
+    final configured = context
+        .read<BedProvider>()
+        .getBedsForHospital(organizationId)
+        .map((bed) => bed.type)
+        .toSet();
+    final availableTypes = _bedTypes
+        .where((type) => type == existing?.type || !configured.contains(type))
+        .toList();
+    if (availableTypes.isEmpty) return;
     showDialog(
       context: context,
       builder: (_) => _BedTypeFormDialog(
         existing: existing,
+        availableTypes: availableTypes,
         onSave: (bed) async {
-          await context.read<BedProvider>().saveBedType(_orgId!, bed);
+          if (!_isCurrentScope(organizationId, generation)) return;
+          await context.read<BedProvider>().saveBedType(organizationId, bed);
+          if (!_isCurrentScope(organizationId, generation)) return;
         },
       ),
     );
@@ -41,7 +84,8 @@ class _ManageBedsScreenState extends State<ManageBedsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (_orgId == null) return const Center(child: Text('No organization assigned'));
+    if (_orgId == null)
+      return const Center(child: Text('No organization assigned'));
 
     final bedProvider = context.watch<BedProvider>();
     final beds = bedProvider.getBedsForHospital(_orgId!);
@@ -56,20 +100,34 @@ class _ManageBedsScreenState extends State<ManageBedsScreen> {
             children: [
               Row(
                 children: [
-                  Text('Manage Beds', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+                  Text(
+                    'Manage Beds',
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                   const Spacer(),
                   FilledButton.icon(
-                    onPressed: () => _showBedForm(),
+                    onPressed:
+                        beds.map((bed) => bed.type).toSet().length >=
+                            _bedTypes.length
+                        ? null
+                        : () => _showBedForm(),
                     icon: const Icon(Icons.add),
                     label: const Text('Add Bed Type'),
                   ),
                 ],
               ),
               const SizedBox(height: 16),
-              if (bedProvider.isLoading)
+              if (_isScopeLoading || bedProvider.isLoading)
                 const Center(child: CircularProgressIndicator())
               else if (beds.isEmpty)
-                const Center(child: Padding(padding: EdgeInsets.all(48), child: Text('No bed types configured')))
+                const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(48),
+                    child: Text('No bed types configured'),
+                  ),
+                )
               else
                 ...beds.map(
                   (bed) => Card(
@@ -80,58 +138,107 @@ class _ManageBedsScreenState extends State<ManageBedsScreen> {
                       child: Padding(
                         padding: const EdgeInsets.all(16),
                         child: Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(bed.type, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                                const SizedBox(height: 8),
-                                Row(
-                                  children: [
-                                    _InfoChip('Total: ${bed.totalBeds}'),
-                                    const SizedBox(width: 8),
-                                    _InfoChip('Held: ${bed.heldBeds}'),
-                                    const SizedBox(width: 8),
-                                    _InfoChip('Admitted: ${bed.admittedBeds}'),
-                                  ],
-                                ),
-                                const SizedBox(height: 8),
-                                PriceWidget(price: bed.pricePerDay, label: 'day', prominent: true),
-                              ],
-                            ),
-                          ),
-                          Column(
-                            children: [
-                              AvailabilityBadge(available: bed.availableBeds),
-                              const SizedBox(height: 8),
-                              Row(
-                                mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  IconButton(icon: const Icon(Icons.edit), onPressed: () => _showBedForm(existing: bed)),
-                                  IconButton(
-                                    icon: const Icon(Icons.delete, color: Colors.red),
-                                    onPressed: () async {
-                                      final confirm = await showDialog<bool>(
-                                        context: context,
-                                        builder: (dlgCtx) => AlertDialog(
-                                          title: const Text('Delete Bed Type?'),
-                                          actions: [
-                                            TextButton(onPressed: () => Navigator.pop(dlgCtx, false), child: const Text('Cancel')),
-                                            FilledButton(onPressed: () => Navigator.pop(dlgCtx, true), child: const Text('Delete')),
-                                          ],
-                                        ),
-                                      );
-                                      if (confirm == true) {
-                                        await context.read<BedProvider>().deleteBedType(_orgId!, bed.id);
-                                      }
-                                    },
+                                  Text(
+                                    bed.type,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Row(
+                                    children: [
+                                      _InfoChip('Total: ${bed.totalBeds}'),
+                                      const SizedBox(width: 8),
+                                      _InfoChip('Held: ${bed.heldBeds}'),
+                                      const SizedBox(width: 8),
+                                      _InfoChip(
+                                        'Admitted: ${bed.admittedBeds}',
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                  PriceWidget(
+                                    price: bed.pricePerDay,
+                                    label: 'day',
+                                    prominent: true,
                                   ),
                                 ],
                               ),
-                            ],
-                          ),
-                        ],
+                            ),
+                            Column(
+                              children: [
+                                AvailabilityBadge(available: bed.availableBeds),
+                                const SizedBox(height: 8),
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    IconButton(
+                                      icon: const Icon(Icons.edit),
+                                      onPressed: () =>
+                                          _showBedForm(existing: bed),
+                                    ),
+                                    IconButton(
+                                      icon: const Icon(
+                                        Icons.delete,
+                                        color: Colors.red,
+                                      ),
+                                      onPressed: () async {
+                                        final organizationId = _orgId;
+                                        final generation = _scopeGeneration;
+                                        if (organizationId == null) return;
+                                        final confirm = await showDialog<bool>(
+                                          context: context,
+                                          builder: (dlgCtx) => AlertDialog(
+                                            title: const Text(
+                                              'Delete Bed Type?',
+                                            ),
+                                            actions: [
+                                              TextButton(
+                                                onPressed: () => Navigator.pop(
+                                                  dlgCtx,
+                                                  false,
+                                                ),
+                                                child: const Text('Cancel'),
+                                              ),
+                                              FilledButton(
+                                                onPressed: () =>
+                                                    Navigator.pop(dlgCtx, true),
+                                                child: const Text('Delete'),
+                                              ),
+                                            ],
+                                          ),
+                                        );
+                                        if (!_isCurrentScope(
+                                          organizationId,
+                                          generation,
+                                        ))
+                                          return;
+                                        if (confirm == true) {
+                                          await context
+                                              .read<BedProvider>()
+                                              .deleteBedType(
+                                                organizationId,
+                                                bed.id,
+                                              );
+                                          if (!_isCurrentScope(
+                                            organizationId,
+                                            generation,
+                                          ))
+                                            return;
+                                        }
+                                      },
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ],
                         ),
                       ),
                     ),
@@ -153,17 +260,28 @@ class _InfoChip extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(6)),
-      child: Text(text, style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+      ),
     );
   }
 }
 
 class _BedTypeFormDialog extends StatefulWidget {
   final BedTypeModel? existing;
+  final List<String> availableTypes;
   final Future<void> Function(BedTypeModel) onSave;
 
-  const _BedTypeFormDialog({this.existing, required this.onSave});
+  const _BedTypeFormDialog({
+    this.existing,
+    required this.availableTypes,
+    required this.onSave,
+  });
 
   @override
   State<_BedTypeFormDialog> createState() => _BedTypeFormDialogState();
@@ -180,10 +298,11 @@ class _BedTypeFormDialogState extends State<_BedTypeFormDialog> {
   @override
   void initState() {
     super.initState();
-    _type = widget.existing?.type ?? 'General';
+    _type = widget.existing?.type ?? widget.availableTypes.first;
     _totalController.text = widget.existing?.totalBeds.toString() ?? '';
     _priceController.text = widget.existing?.pricePerDay.toString() ?? '';
-    _holdController.text = (widget.existing?.holdDurationMinutes ?? 30).toString();
+    _holdController.text = (widget.existing?.holdDurationMinutes ?? 30)
+        .toString();
   }
 
   @override
@@ -206,39 +325,64 @@ class _BedTypeFormDialogState extends State<_BedTypeFormDialog> {
             DropdownButtonFormField<String>(
               value: _type,
               decoration: const InputDecoration(labelText: 'Bed Type'),
-              items: const [
-                DropdownMenuItem(value: 'General', child: Text('General')),
-                DropdownMenuItem(value: 'ICU', child: Text('ICU')),
-                DropdownMenuItem(value: 'NICU', child: Text('NICU')),
-              ],
-              onChanged: widget.existing != null ? null : (v) => setState(() => _type = v!),
+              items: widget.availableTypes
+                  .map(
+                    (type) => DropdownMenuItem(value: type, child: Text(type)),
+                  )
+                  .toList(),
+              onChanged: widget.existing != null
+                  ? null
+                  : (v) => setState(() => _type = v!),
             ),
             const SizedBox(height: 12),
             TextFormField(
               controller: _totalController,
               decoration: const InputDecoration(labelText: 'Total Beds'),
               keyboardType: TextInputType.number,
-              validator: (v) => Validators.validatePositiveInt(v, 'Total beds'),
+              validator: (v) {
+                final base = Validators.validatePositiveInt(v, 'Total beds');
+                if (base != null) return base;
+                final minimum =
+                    (widget.existing?.heldBeds ?? 0) +
+                    (widget.existing?.admittedBeds ?? 0);
+                return int.parse(v!) < minimum
+                    ? 'Total beds cannot be below $minimum currently occupied or held beds'
+                    : null;
+              },
             ),
             const SizedBox(height: 12),
             TextFormField(
               controller: _priceController,
-              decoration: const InputDecoration(labelText: 'Price per Day (৳)', prefixText: '৳ '),
+              decoration: const InputDecoration(
+                labelText: 'Price per Day (৳)',
+                prefixText: '৳ ',
+              ),
               keyboardType: TextInputType.number,
               validator: (v) => Validators.validatePositiveNumber(v, 'Price'),
             ),
             const SizedBox(height: 12),
             TextFormField(
               controller: _holdController,
-              decoration: const InputDecoration(labelText: 'Hold Duration (minutes)'),
+              decoration: const InputDecoration(
+                labelText: 'Hold Duration (minutes)',
+              ),
               keyboardType: TextInputType.number,
-              validator: (v) => Validators.validatePositiveInt(v, 'Hold duration'),
+              validator: (v) {
+                final base = Validators.validatePositiveInt(v, 'Hold duration');
+                if (base != null) return base;
+                return int.parse(v!) > 1440
+                    ? 'Hold duration cannot exceed 1440 minutes'
+                    : null;
+              },
             ),
           ],
         ),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
         FilledButton(
           onPressed: _isLoading
               ? null
@@ -259,11 +403,20 @@ class _BedTypeFormDialogState extends State<_BedTypeFormDialog> {
                     await widget.onSave(bed);
                     if (mounted) Navigator.pop(context);
                   } catch (e) {
-                    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+                    if (mounted)
+                      ScaffoldMessenger.of(
+                        context,
+                      ).showSnackBar(SnackBar(content: Text('Error: $e')));
                   }
                   if (mounted) setState(() => _isLoading = false);
                 },
-          child: _isLoading ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('Save'),
+          child: _isLoading
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Text('Save'),
         ),
       ],
     );

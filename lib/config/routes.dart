@@ -416,6 +416,29 @@ class _SuperAdminRequestsViewState extends State<_SuperAdminRequestsView>
                   (booking) =>
                       _RequestCard(booking: booking, onRefresh: _loadRequests),
                 ),
+              if (bookingProvider.hasMoreBookings) ...[
+                const SizedBox(height: 8),
+                Center(
+                  child: OutlinedButton.icon(
+                    onPressed: bookingProvider.isLoading ||
+                            bookingProvider.isLoadingMore
+                        ? null
+                        : () => context.read<BookingProvider>().loadMoreBookings(),
+                    icon: bookingProvider.isLoadingMore
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.expand_more),
+                    label: Text(
+                      bookingProvider.isLoadingMore
+                          ? 'Loading…'
+                          : 'Load older requests',
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
         ),

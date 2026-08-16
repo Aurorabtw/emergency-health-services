@@ -41,6 +41,7 @@ class _AmbulanceBookingScreenState extends State<AmbulanceBookingScreen> {
   bool _isLoading = false;
   bool _isSubmitting = false;
   bool _locatingPickup = false;
+  int _loadGeneration = 0;
 
   @override
   void initState() {
@@ -48,8 +49,27 @@ class _AmbulanceBookingScreenState extends State<AmbulanceBookingScreen> {
     _loadData();
   }
 
+  @override
+  void didUpdateWidget(covariant AmbulanceBookingScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.organizationId != widget.organizationId) {
+      _loadData();
+    }
+  }
+
   Future<void> _loadData() async {
-    setState(() => _isLoading = true);
+    final organizationId = widget.organizationId;
+    final generation = ++_loadGeneration;
+    setState(() {
+      _operator = null;
+      _selectedType = null;
+      _selectedDestination = null;
+      _hospitals = [];
+      _prescriptionImage = null;
+      _isLoading = true;
+      _isSubmitting = false;
+      _locatingPickup = false;
+    });
 
     final auth = context.read<AuthProvider>();
     _nameController.text = auth.user?.name ?? '';
@@ -57,11 +77,13 @@ class _AmbulanceBookingScreenState extends State<AmbulanceBookingScreen> {
 
     final orgProvider = context.read<OrganizationProvider>();
     final ambulanceProvider = context.read<AmbulanceProvider>();
-    final org = await orgProvider.getOrganization(widget.organizationId);
-    await ambulanceProvider.fetchAmbulancesForOrg(widget.organizationId);
+    final org = await orgProvider.getOrganization(organizationId);
+    if (!_isCurrentLoad(organizationId, generation)) return;
+    await ambulanceProvider.fetchAmbulancesForOrg(organizationId);
+    if (!_isCurrentLoad(organizationId, generation)) return;
     final hospitals = await orgProvider.getVerifiedByType('hospital');
+    if (!_isCurrentLoad(organizationId, generation)) return;
 
-    if (!mounted) return;
     setState(() {
       _operator = org;
       _hospitals = hospitals;
@@ -70,17 +92,32 @@ class _AmbulanceBookingScreenState extends State<AmbulanceBookingScreen> {
 
     // Auto-detect the pickup location so the user doesn't have to type it.
     // Runs after the form renders so a slow/denied GPS prompt never blocks it.
-    await _detectPickupLocation();
+    await _detectPickupLocation(
+      organizationId: organizationId,
+      generation: generation,
+    );
+    if (!_isCurrentLoad(organizationId, generation)) return;
   }
 
+  bool _isCurrentLoad(String organizationId, int generation) =>
+      mounted &&
+      generation == _loadGeneration &&
+      widget.organizationId == organizationId;
+
   /// Populates the pickup field from the device's current location.
-  Future<void> _detectPickupLocation() async {
+  Future<void> _detectPickupLocation({
+    String? organizationId,
+    int? generation,
+  }) async {
+    final capturedOrganizationId = organizationId ?? widget.organizationId;
+    final capturedGeneration = generation ?? _loadGeneration;
     final locationProvider = context.read<LocationProvider>();
     setState(() => _locatingPickup = true);
     if (!locationProvider.hasLocation) {
       await locationProvider.getCurrentLocation();
+      if (!_isCurrentLoad(capturedOrganizationId, capturedGeneration)) return;
     }
-    if (!mounted) return;
+    if (!_isCurrentLoad(capturedOrganizationId, capturedGeneration)) return;
     if (locationProvider.hasLocation) {
       _pickupController.text =
           'Current Location (${locationProvider.latitude!.toStringAsFixed(4)}, ${locationProvider.longitude!.toStringAsFixed(4)})';
@@ -101,17 +138,30 @@ class _AmbulanceBookingScreenState extends State<AmbulanceBookingScreen> {
   }
 
   Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) return;
-
+    final organizationId = widget.organizationId;
+    final generation = _loadGeneration;
     final auth = context.read<AuthProvider>();
     if (!auth.isAuthenticated) {
       context.go('/login');
       return;
     }
+    final userId = auth.user!.uid;
 
     final profileOk = await ProfileCompletionDialog.showIfNeeded(context);
-    if (!profileOk) return;
-    if (!mounted) return;
+    if (!mounted ||
+        generation != _loadGeneration ||
+        widget.organizationId != organizationId ||
+        context.read<AuthProvider>().user?.uid != userId ||
+        !profileOk) {
+      return;
+    }
+    if (_nameController.text.trim().isEmpty) {
+      _nameController.text = auth.user?.name ?? '';
+    }
+    if (_phoneController.text.trim().isEmpty) {
+      _phoneController.text = auth.user?.phone ?? '';
+    }
+    if (!_formKey.currentState!.validate()) return;
 
     setState(() => _isSubmitting = true);
 
@@ -120,7 +170,7 @@ class _AmbulanceBookingScreenState extends State<AmbulanceBookingScreen> {
       final bookingProvider = context.read<BookingProvider>();
       final ambulance = context
           .read<AmbulanceProvider>()
-          .getAmbulancesForOrg(widget.organizationId)
+          .getAmbulancesForOrg(organizationId)
           .where((a) => a.type == _selectedType && a.isAvailable)
           .firstOrNull;
       if (ambulance == null) {
@@ -131,11 +181,11 @@ class _AmbulanceBookingScreenState extends State<AmbulanceBookingScreen> {
       final booking = BookingRequestModel(
         id: bookingId,
         type: 'ambulance',
-        organizationId: widget.organizationId,
+        organizationId: organizationId,
         organizationName: _operator?.name,
-        userId: auth.user!.uid,
+        userId: userId,
         patientName: _nameController.text.trim(),
-        contactNumber: _phoneController.text.trim(),
+        contactNumber: Validators.normalizePhone(_phoneController.text),
         createdAt: DateTime.now(),
         ambulanceType: _selectedType,
         ambulanceReferenceId: ambulance.id,
@@ -158,18 +208,29 @@ class _AmbulanceBookingScreenState extends State<AmbulanceBookingScreen> {
         _prescriptionImage!,
         contentType: _prescriptionContentType,
       );
-      if (mounted) {
+      if (mounted &&
+          generation == _loadGeneration &&
+          widget.organizationId == organizationId &&
+          context.read<AuthProvider>().user?.uid == userId) {
         context.go('/booking/${booking.id}');
       }
     } catch (e) {
-      if (mounted) {
+      if (mounted &&
+          generation == _loadGeneration &&
+          widget.organizationId == organizationId &&
+          context.read<AuthProvider>().user?.uid == userId) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('Failed: $e')));
       }
     }
 
-    if (mounted) setState(() => _isSubmitting = false);
+    if (mounted &&
+        generation == _loadGeneration &&
+        widget.organizationId == organizationId &&
+        context.read<AuthProvider>().user?.uid == userId) {
+      setState(() => _isSubmitting = false);
+    }
   }
 
   @override
@@ -224,6 +285,7 @@ class _AmbulanceBookingScreenState extends State<AmbulanceBookingScreen> {
                     ),
                     const Divider(height: 32),
                     DropdownButtonFormField<String>(
+                      key: ValueKey(widget.organizationId),
                       initialValue: _selectedType,
                       decoration: const InputDecoration(
                         labelText: 'Ambulance Type',
@@ -290,6 +352,7 @@ class _AmbulanceBookingScreenState extends State<AmbulanceBookingScreen> {
                     ),
                     const SizedBox(height: 12),
                     Autocomplete<OrganizationModel>(
+                      key: ValueKey(widget.organizationId),
                       optionsBuilder: (textEditingValue) {
                         if (textEditingValue.text.isEmpty) {
                           return const Iterable.empty();
@@ -386,6 +449,7 @@ class _AmbulanceBookingScreenState extends State<AmbulanceBookingScreen> {
                     ),
                     const SizedBox(height: 16),
                     PrescriptionUploadField(
+                      key: ValueKey(widget.organizationId),
                       onChanged: (bytes, _, contentType) => setState(() {
                         _prescriptionImage = bytes;
                         _prescriptionContentType = contentType;

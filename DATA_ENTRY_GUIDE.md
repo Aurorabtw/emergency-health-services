@@ -137,13 +137,13 @@ The user will see their admin dashboard on their next page load.
 
 ---
 
-### 2.4 Remove Organizations or Users
+### 2.4 Archive Organizations or Revoke User Access
 
-**Remove an organization:** Go to **Manage Organizations** → click the **delete (trash) icon** on the org card → confirm.
+**Archive an organization:** Reassign all administrators and resolve waiting, confirmed, and admitted bed bookings. Go to **Manage Organizations**, click the archive icon, and confirm. Historical inventory and bookings remain available for auditing.
 
-**Remove a user:** Go to **Manage Users** → click the **delete (trash) icon** on the user row → confirm.
+**Revoke a user:** Go to **Manage Users**, click the lock icon, and confirm. The user is signed out and protected platform access is denied. Use the unlock action to restore the account as a patient.
 
-> ⚠️ Removing an organization does NOT automatically remove its associated booking requests. Removing a user only removes their profile document — their Firebase Auth account remains.
+> Revocation does not delete the Firebase Authentication identity or medical history. Administrative Auth deletion requires a trusted backend or the Firebase Console.
 
 ---
 
@@ -173,9 +173,9 @@ Click **Save**.
 ### 3.2 Edit or Delete a Bed Type
 
 - **Edit:** Click the **edit (pencil) icon** on the bed type card → update fields → Save
-- **Delete:** Click the **delete (trash) icon** → confirm
+- **Delete:** Click the **delete (trash) icon** → confirm. A type with held or admitted patients cannot be deleted.
 
-> 💡 When editing, you can change total beds and price. The held and admitted counts are managed by the system through bookings.
+> When editing, total beds cannot be reduced below held plus admitted beds. Held and admitted counts are managed only through booking actions.
 
 ---
 
@@ -320,7 +320,7 @@ When patients submit bookings, they appear in the relevant admin's **Requests** 
 Each request shows:
 - Patient name, phone number, bed type, estimated price
 - **View Prescription** button (if the patient uploaded one — opens in a dialog)
-- Status badge (Pending / Confirmed / Admitted / Rejected / Expired)
+- Status badge (Pending / Held / Admitted / Discharged / Rejected / Expired)
 
 **Actions:**
 
@@ -328,7 +328,8 @@ Each request shows:
 |--------|------------------|--------------|
 | **Pending** | **Approve & Hold** or **Reject** | Approve decrements available beds, starts hold timer |
 | **Confirmed** | **Mark as Admitted** | Moves patient from "held" to "admitted" count |
-| Rejected/Expired/Admitted | None (terminal) | Use **Clean** button to remove from list |
+| **Admitted** | **Discharge Patient** | Releases the occupied bed and closes the admission |
+| Rejected/Expired/Discharged | None (terminal) | Use **Clean** button to remove from list |
 
 ### 7.2 Blood Requests
 
@@ -347,7 +348,7 @@ Same flow:
 ### 7.4 Cleaning Old Requests
 
 All three request screens have a **Clean** button (broom icon, top right):
-- Only appears when there are terminal requests (Rejected, Expired, or Admitted/Completed)
+- Only appears when there are terminal requests. Admitted bed bookings remain active until discharge and are never cleaned.
 - Click to batch-delete them from the list
 - This is permanent — the requests are removed from the database
 

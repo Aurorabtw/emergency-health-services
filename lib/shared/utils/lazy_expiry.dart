@@ -2,12 +2,16 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../../models/booking_request_model.dart';
 import '../../services/firestore_service.dart';
+import '../../services/server_clock_service.dart';
 
 class LazyExpiry {
   static Future<BookingRequestModel> checkAndExpire(
     BookingRequestModel booking,
     FirestoreService firestoreService,
   ) async {
+    if (booking.type == 'test') {
+      return _expireStaleDiagnosticBooking(booking, firestoreService);
+    }
     if (!booking.isConfirmed || booking.heldUntil == null) return booking;
     if (!DateTime.now().isAfter(booking.heldUntil!)) return booking;
 
@@ -43,12 +47,12 @@ class LazyExpiry {
 
         final bookingData = bookingSnapshot.data() as Map<String, dynamic>;
         final resourceData = resourceSnapshot.data() as Map<String, dynamic>;
-        final heldUntil = bookingData['held_until'] as Timestamp?;
+        final holdDeadline = _holdDeadline(bookingData);
         if (bookingData['status'] != 'confirmed' ||
             bookingData['type'] != booking.type ||
             bookingData['organization_id'] != booking.organizationId ||
-            heldUntil == null ||
-            heldUntil.toDate().isAfter(DateTime.now())) {
+            holdDeadline == null ||
+            holdDeadline.isAfter(DateTime.now())) {
           return;
         }
 
@@ -107,5 +111,46 @@ class LazyExpiry {
     } catch (_) {
       return booking;
     }
+  }
+
+  static Future<BookingRequestModel> _expireStaleDiagnosticBooking(
+    BookingRequestModel booking,
+    FirestoreService firestoreService,
+  ) async {
+    if ((!booking.isPending && !booking.isConfirmed) ||
+        booking.queueYear == null ||
+        booking.queueMonth == null ||
+        booking.queueDay == null) {
+      return booking;
+    }
+    final serverNow = await ServerClockService().now();
+    final today = serverNow.add(const Duration(hours: 6));
+    final bookingDay = DateTime.utc(
+      booking.queueYear!,
+      booking.queueMonth!,
+      booking.queueDay!,
+    );
+    final currentDay = DateTime.utc(today.year, today.month, today.day);
+    if (!bookingDay.isBefore(currentDay)) {
+      return booking;
+    }
+
+    try {
+      await firestoreService.updateDocument('booking_requests/${booking.id}', {
+        'status': 'expired',
+      });
+      return booking.copyWith(status: 'expired');
+    } catch (_) {
+      return booking;
+    }
+  }
+
+  static DateTime? _holdDeadline(Map<String, dynamic> data) {
+    final heldUntil = data['held_until'] as Timestamp?;
+    if (heldUntil != null) return heldUntil.toDate();
+    final confirmedAt = data['confirmed_at'] as Timestamp?;
+    final durationMinutes = data['hold_duration_minutes'] as int?;
+    if (confirmedAt == null || durationMinutes == null) return null;
+    return confirmedAt.toDate().add(Duration(minutes: durationMinutes));
   }
 }

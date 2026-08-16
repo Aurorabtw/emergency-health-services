@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -26,7 +24,8 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
   String _roleFilter = 'all';
   int _page = 0;
   static const int _rowsPerPage = 10;
-  StreamSubscription? _usersSubscription;
+  DocumentSnapshot? _lastUserDocument;
+  bool _hasMoreUsers = true;
 
   @override
   void initState() {
@@ -35,58 +34,69 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
     context.read<OrganizationProvider>().fetchOrganizations();
   }
 
-  Future<void> _watchUsers() async {
-    await _usersSubscription?.cancel();
+  Future<void> _watchUsers({bool reset = true}) async {
     if (mounted) {
       setState(() {
         _isLoading = true;
         _loadError = null;
+        if (reset) {
+          _users = [];
+          _lastUserDocument = null;
+          _hasMoreUsers = true;
+          _page = 0;
+        }
       });
     }
-    _usersSubscription = _firestoreService
-        .streamCollection('users')
-        .listen(
-          (snapshot) {
-            if (!mounted) return;
-            final users =
-                snapshot.docs
-                    .map((doc) => UserModel.fromFirestore(doc))
-                    .toList()
-                  ..sort(
-                    (a, b) => (a.name ?? a.email).toLowerCase().compareTo(
-                      (b.name ?? b.email).toLowerCase(),
-                    ),
-                  );
-            setState(() {
-              _users = users;
-              _isLoading = false;
-              _loadError = null;
-            });
-          },
-          onError: (Object error) {
-            if (!mounted) return;
-            setState(() {
-              _isLoading = false;
-              _loadError = 'Unable to load users: $error';
-            });
-          },
+    try {
+      final page = await _firestoreService.getCollectionPage(
+        'users',
+        orderBy: 'email',
+        pageSize: 50,
+        startAfter: reset ? null : _lastUserDocument,
+      );
+      if (!mounted) return;
+      final loaded = page.docs.map(UserModel.fromFirestore);
+      final usersById = {
+        for (final user in _users) user.uid: user,
+        for (final user in loaded) user.uid: user,
+      };
+      final users = usersById.values.toList()
+        ..sort(
+          (a, b) => (a.name ?? a.email).toLowerCase().compareTo(
+            (b.name ?? b.email).toLowerCase(),
+          ),
         );
+      setState(() {
+        _users = users;
+        _lastUserDocument = page.lastDocument;
+        _hasMoreUsers = page.hasMore;
+        _isLoading = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _loadError = 'Unable to load users: $error';
+      });
+    }
   }
 
   @override
   void dispose() {
-    _usersSubscription?.cancel();
     _searchController.dispose();
     super.dispose();
   }
 
-  void _confirmDeleteUser(UserModel user) {
+  void _confirmAccessChange(UserModel user) {
+    final restoring = user.accessRevoked;
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Remove User'),
+        title: Text(restoring ? 'Restore Platform Access' : 'Revoke Platform Access'),
         content: Text(
-          'Are you sure you want to remove "${user.name ?? user.email}"? This will remove their profile from the platform.',
+          restoring
+              ? 'Restore access for "${user.name ?? user.email}" as a patient? Administrative roles must be assigned again.'
+              : 'Revoke access for "${user.name ?? user.email}"? This signs them out and blocks protected platform access. Their Firebase Authentication account and booking history are retained.',
         ),
         actions: [
           TextButton(
@@ -94,33 +104,66 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
             child: const Text('Cancel'),
           ),
           FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            style: restoring
+                ? null
+                : FilledButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () {
               Navigator.pop(ctx);
-              _deleteUser(user);
+              _setUserAccess(user, restore: restoring);
             },
-            child: const Text('Remove'),
+            child: Text(restoring ? 'Restore Access' : 'Revoke Access'),
           ),
         ],
       ),
     );
   }
 
-  Future<void> _deleteUser(UserModel user) async {
+  Future<void> _setUserAccess(
+    UserModel user, {
+    required bool restore,
+  }) async {
     try {
-      await _firestoreService.deleteDocument('users/${user.uid}');
+      final currentUserId = context.read<AuthProvider>().user?.uid;
+      if (currentUserId == null || currentUserId == user.uid) return;
+      final batch = _firestoreService.db.batch();
+      final userRef = _firestoreService.db.doc('users/${user.uid}');
+      final revocationRef = _firestoreService.db.doc(
+        'access_revocations/${user.uid}',
+      );
+      batch.update(userRef, {
+        'access_revoked': !restore,
+        'access_revoked_at': restore ? null : FieldValue.serverTimestamp(),
+        'access_revoked_by': restore ? null : currentUserId,
+        'role': 'patient',
+        'organization_id': null,
+      });
+      if (restore) {
+        batch.delete(revocationRef);
+      } else {
+        batch.set(revocationRef, {
+          'user_id': user.uid,
+          'revoked_at': FieldValue.serverTimestamp(),
+          'revoked_by': currentUserId,
+        });
+      }
+      await batch.commit();
+      await _watchUsers();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('${user.name ?? user.email} was removed.'),
+          content: Text(
+            restore
+                ? 'Platform access was restored for ${user.name ?? user.email}.'
+                : 'Platform access was revoked for ${user.name ?? user.email}.',
+          ),
           backgroundColor: Colors.green.shade700,
         ),
       );
     } on FirebaseException catch (e) {
       if (!mounted) return;
       final message = e.code == 'permission-denied'
-          ? 'Permission denied. Deploy the updated Firestore rules before removing users.'
-          : e.message ?? 'Unable to remove this user.';
+          ? 'Permission denied. Deploy the updated Firestore rules before changing user access.'
+          : e.message ?? 'Unable to change this user\'s access.';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(message), backgroundColor: Colors.red.shade700),
       );
@@ -128,7 +171,7 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Unable to remove this user: $e'),
+          content: Text('Unable to change this user\'s access: $e'),
           backgroundColor: Colors.red.shade700,
         ),
       );
@@ -140,6 +183,7 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
     List<OrganizationModel> organizations,
   ) {
     return organizations.where((organization) {
+      if (organization.archived) return false;
       if (role == 'bed_admin' ||
           role == 'test_admin' ||
           role == 'hospital_admin') {
@@ -156,6 +200,7 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
   }
 
   void _showRoleDialog(UserModel user) {
+    if (user.accessRevoked) return;
     final orgProvider = context.read<OrganizationProvider>();
     String selectedRole = user.role;
     final compatibleOrganizations = _organizationsForRole(
@@ -263,7 +308,7 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
                       selectedOrgId == null
                   ? null
                   : () async {
-                      await _firestoreService
+                       await _firestoreService
                           .updateDocument('users/${user.uid}', {
                             'role': selectedRole,
                             'organization_id':
@@ -271,8 +316,9 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
                                     selectedRole == 'super_admin')
                                 ? null
                                 : selectedOrgId,
-                          });
-                      if (context.mounted) Navigator.pop(dialogContext);
+                           });
+                       await _watchUsers();
+                       if (context.mounted) Navigator.pop(dialogContext);
                     },
               child: const Text('Save'),
             ),
@@ -341,7 +387,7 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'Manage platform members, roles, and organization assignments.',
+                          'Manage platform members, roles, and organization assignments. Search and counts cover loaded users.',
                           style: TextStyle(color: Colors.grey.shade600),
                         ),
                       ],
@@ -469,7 +515,7 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
                             isCurrentUser: user.uid == currentUserId,
                             roleColor: _roleColor(user.role),
                             onEdit: () => _showRoleDialog(user),
-                            onDelete: () => _confirmDeleteUser(user),
+                            onAccessChange: () => _confirmAccessChange(user),
                           );
                         }).toList(),
                       );
@@ -482,7 +528,7 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
                       currentUserId: currentUserId,
                       roleColor: _roleColor,
                       onEdit: _showRoleDialog,
-                      onDelete: _confirmDeleteUser,
+                      onAccessChange: _confirmAccessChange,
                     );
                   },
                 ),
@@ -503,6 +549,17 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
                       ? null
                       : () => setState(() => _page = currentPage + 1),
                 ),
+                if (_hasMoreUsers) ...[
+                  const SizedBox(height: 12),
+                  Center(
+                    child: OutlinedButton(
+                      onPressed: _isLoading
+                          ? null
+                          : () => _watchUsers(reset: false),
+                      child: const Text('Load More Users'),
+                    ),
+                  ),
+                ],
               ],
             ],
           ),
@@ -562,7 +619,7 @@ class _UsersTable extends StatelessWidget {
   final String? currentUserId;
   final Color Function(String) roleColor;
   final ValueChanged<UserModel> onEdit;
-  final ValueChanged<UserModel> onDelete;
+  final ValueChanged<UserModel> onAccessChange;
 
   const _UsersTable({
     required this.users,
@@ -571,7 +628,7 @@ class _UsersTable extends StatelessWidget {
     required this.currentUserId,
     required this.roleColor,
     required this.onEdit,
-    required this.onDelete,
+    required this.onAccessChange,
   });
 
   @override
@@ -607,7 +664,9 @@ class _UsersTable extends StatelessWidget {
               organizationTypes[user.organizationId],
             );
             return DataRow(
-              onSelectChanged: isCurrentUser ? null : (_) => onEdit(user),
+              onSelectChanged: isCurrentUser || user.accessRevoked
+                  ? null
+                  : (_) => onEdit(user),
               cells: [
                 DataCell(
                   Row(
@@ -688,12 +747,22 @@ class _UsersTable extends StatelessWidget {
                     ),
                   ),
                 ),
-                DataCell(_ProfileBadge(isComplete: user.profileComplete)),
+                DataCell(
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      _ProfileBadge(isComplete: user.profileComplete),
+                      _AccessBadge(isRevoked: user.accessRevoked),
+                    ],
+                  ),
+                ),
                 DataCell(
                   _UserActions(
                     isCurrentUser: isCurrentUser,
+                    isRevoked: user.accessRevoked,
                     onEdit: () => onEdit(user),
-                    onDelete: () => onDelete(user),
+                    onAccessChange: () => onAccessChange(user),
                   ),
                 ),
               ],
@@ -712,7 +781,7 @@ class _MobileUserCard extends StatelessWidget {
   final bool isCurrentUser;
   final Color roleColor;
   final VoidCallback onEdit;
-  final VoidCallback onDelete;
+  final VoidCallback onAccessChange;
 
   const _MobileUserCard({
     required this.user,
@@ -721,7 +790,7 @@ class _MobileUserCard extends StatelessWidget {
     required this.isCurrentUser,
     required this.roleColor,
     required this.onEdit,
-    required this.onDelete,
+    required this.onAccessChange,
   });
 
   @override
@@ -731,7 +800,7 @@ class _MobileUserCard extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 10),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: isCurrentUser ? null : onEdit,
+        onTap: isCurrentUser || user.accessRevoked ? null : onEdit,
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Column(
@@ -761,8 +830,9 @@ class _MobileUserCard extends StatelessWidget {
                   ),
                   _UserActions(
                     isCurrentUser: isCurrentUser,
+                    isRevoked: user.accessRevoked,
                     onEdit: onEdit,
-                    onDelete: onDelete,
+                    onAccessChange: onAccessChange,
                   ),
                 ],
               ),
@@ -773,6 +843,7 @@ class _MobileUserCard extends StatelessWidget {
                 children: [
                   _RoleBadge(label: user.roleLabel, color: roleColor),
                   _ProfileBadge(isComplete: user.profileComplete),
+                  _AccessBadge(isRevoked: user.accessRevoked),
                 ],
               ),
               const SizedBox(height: 12),
@@ -901,15 +972,43 @@ class _ProfileBadge extends StatelessWidget {
   }
 }
 
+class _AccessBadge extends StatelessWidget {
+  final bool isRevoked;
+
+  const _AccessBadge({required this.isRevoked});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isRevoked ? Colors.red : Colors.green;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.shade50,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        isRevoked ? 'Revoked' : 'Active',
+        style: TextStyle(
+          color: color.shade800,
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+}
+
 class _UserActions extends StatelessWidget {
   final bool isCurrentUser;
+  final bool isRevoked;
   final VoidCallback onEdit;
-  final VoidCallback onDelete;
+  final VoidCallback onAccessChange;
 
   const _UserActions({
     required this.isCurrentUser,
+    required this.isRevoked,
     required this.onEdit,
-    required this.onDelete,
+    required this.onAccessChange,
   });
 
   @override
@@ -923,19 +1022,21 @@ class _UserActions extends StatelessWidget {
           tooltip: isCurrentUser
               ? 'You cannot change your own admin role'
               : 'Assign role',
-          onPressed: isCurrentUser ? null : onEdit,
+          onPressed: isCurrentUser || isRevoked ? null : onEdit,
         ),
         IconButton(
           visualDensity: VisualDensity.compact,
           icon: Icon(
-            Icons.delete_outline,
+            isRevoked ? Icons.lock_open_outlined : Icons.lock_outline,
             size: 19,
-            color: isCurrentUser ? null : Colors.red.shade400,
+            color: isCurrentUser || isRevoked ? null : Colors.red.shade400,
           ),
           tooltip: isCurrentUser
-              ? 'You cannot remove your own account'
-              : 'Remove user',
-          onPressed: isCurrentUser ? null : onDelete,
+              ? 'You cannot revoke your own platform access'
+              : isRevoked
+              ? 'Restore platform access'
+              : 'Revoke platform access',
+          onPressed: isCurrentUser ? null : onAccessChange,
         ),
       ],
     );

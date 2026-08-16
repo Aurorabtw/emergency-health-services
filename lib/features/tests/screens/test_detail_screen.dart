@@ -32,6 +32,7 @@ class _TestDetailScreenState extends State<TestDetailScreen> {
   bool _isLoading = true;
   bool _isTakingSerial = false;
   String? _error;
+  int _loadGeneration = 0;
 
   @override
   void initState() {
@@ -39,23 +40,38 @@ class _TestDetailScreenState extends State<TestDetailScreen> {
     _loadDetails();
   }
 
+  @override
+  void didUpdateWidget(covariant TestDetailScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.organizationId != widget.organizationId ||
+        oldWidget.testId != widget.testId) {
+      _loadDetails();
+    }
+  }
+
   Future<void> _loadDetails() async {
+    final organizationId = widget.organizationId;
+    final testId = widget.testId;
+    final generation = ++_loadGeneration;
     setState(() {
+      _organization = null;
+      _test = null;
       _isLoading = true;
+      _isTakingSerial = false;
       _error = null;
     });
 
     final organizationProvider = context.read<OrganizationProvider>();
     final testProvider = context.read<TestProvider>();
     final results = await Future.wait([
-      organizationProvider.getOrganization(widget.organizationId),
-      testProvider.fetchTestsForOrg(widget.organizationId),
+      organizationProvider.getOrganization(organizationId),
+      testProvider.fetchTestsForOrg(organizationId),
     ]);
-    if (!mounted) return;
+    if (!_isCurrentRoute(organizationId, testId, generation)) return;
 
     final organization = results[0] as OrganizationModel?;
     final tests = results[1] as List<DiagnosticTestModel>;
-    final test = tests.where((item) => item.id == widget.testId).firstOrNull;
+    final test = tests.where((item) => item.id == testId).firstOrNull;
     setState(() {
       _organization = organization;
       _test = test;
@@ -66,9 +82,18 @@ class _TestDetailScreenState extends State<TestDetailScreen> {
     });
   }
 
+  bool _isCurrentRoute(String organizationId, String testId, int generation) =>
+      mounted &&
+      generation == _loadGeneration &&
+      widget.organizationId == organizationId &&
+      widget.testId == testId;
+
   Future<void> _openUri(Uri uri, String failureMessage) async {
+    final organizationId = widget.organizationId;
+    final testId = widget.testId;
+    final generation = _loadGeneration;
     final opened = await launchUrl(uri);
-    if (!opened && mounted) {
+    if (!opened && _isCurrentRoute(organizationId, testId, generation)) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(failureMessage)));
@@ -84,20 +109,33 @@ class _TestDetailScreenState extends State<TestDetailScreen> {
   }
 
   Future<void> _takeSerial() async {
+    final organizationId = widget.organizationId;
+    final testId = widget.testId;
+    final generation = _loadGeneration;
     final auth = context.read<AuthProvider>();
     if (!auth.isAuthenticated) {
       final returnPath = '/tests/${widget.organizationId}/${widget.testId}';
       context.go('/login?redirect=${Uri.encodeComponent(returnPath)}');
       return;
     }
+    final userId = auth.user!.uid;
 
     final profileComplete = await ProfileCompletionDialog.showIfNeeded(context);
-    if (!mounted || !profileComplete) return;
+    if (!_isCurrentRoute(organizationId, testId, generation) ||
+        context.read<AuthProvider>().user?.uid != userId ||
+        !profileComplete) {
+      return;
+    }
 
     final user = context.read<AuthProvider>().user;
     final organization = _organization;
     final test = _test;
-    if (user == null || organization == null || test == null) return;
+    if (user == null ||
+        user.uid != userId ||
+        organization == null ||
+        test == null) {
+      return;
+    }
 
     final confirmed = await showDialog<bool>(
       context: context,
@@ -120,7 +158,11 @@ class _TestDetailScreenState extends State<TestDetailScreen> {
         ],
       ),
     );
-    if (confirmed != true || !mounted) return;
+    if (confirmed != true ||
+        !_isCurrentRoute(organizationId, testId, generation) ||
+        context.read<AuthProvider>().user?.uid != userId) {
+      return;
+    }
 
     setState(() => _isTakingSerial = true);
     try {
@@ -134,15 +176,21 @@ class _TestDetailScreenState extends State<TestDetailScreen> {
             contactNumber: user.phone ?? '',
             testId: test.id,
           );
-      if (mounted) context.go('/booking/$bookingId');
+      if (!_isCurrentRoute(organizationId, testId, generation)) return;
+      if (context.read<AuthProvider>().user?.uid != userId) return;
+      context.go('/booking/$bookingId');
     } catch (e) {
-      if (mounted) {
+      if (_isCurrentRoute(organizationId, testId, generation) &&
+          context.read<AuthProvider>().user?.uid == userId) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('$e')));
       }
     } finally {
-      if (mounted) setState(() => _isTakingSerial = false);
+      if (_isCurrentRoute(organizationId, testId, generation) &&
+          context.read<AuthProvider>().user?.uid == userId) {
+        setState(() => _isTakingSerial = false);
+      }
     }
   }
 

@@ -1,4 +1,8 @@
 class Validators {
+  static String normalizePhone(String value) {
+    return value.trim().replaceAll(RegExp(r'[\s\-\(\)]'), '');
+  }
+
   static String? validateName(String? value) {
     if (value == null || value.trim().isEmpty) {
       return 'Name is required';
@@ -16,7 +20,7 @@ class Validators {
     if (value == null || value.trim().isEmpty) {
       return 'Phone number is required';
     }
-    final cleaned = value.replaceAll(RegExp(r'[\s\-\(\)]'), '');
+    final cleaned = normalizePhone(value);
     if (!RegExp(r'^\+?\d{10,15}$').hasMatch(cleaned)) {
       return 'Enter a valid phone number';
     }
@@ -58,6 +62,17 @@ class Validators {
     }
     final number = int.tryParse(value);
     if (number == null || number <= 0) {
+      return 'Enter a valid whole number';
+    }
+    return null;
+  }
+
+  static String? validateNonNegativeInt(String? value, String fieldName) {
+    if (value == null || value.trim().isEmpty) {
+      return '$fieldName is required';
+    }
+    final number = int.tryParse(value);
+    if (number == null || number < 0) {
       return 'Enter a valid whole number';
     }
     return null;

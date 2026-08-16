@@ -13,6 +13,7 @@ class TestProvider extends ChangeNotifier {
   bool _isLoading = false;
   bool _catalogLoading = false;
   String? _error;
+  int _fetchGeneration = 0;
 
   Map<String, List<DiagnosticTestModel>> get orgTests => _orgTests;
   List<TestSearchResult> get searchResults => _searchResults;
@@ -25,6 +26,7 @@ class TestProvider extends ChangeNotifier {
       _orgTests[orgId] ?? [];
 
   Future<void> fetchTestsForOrganizations(List<OrganizationModel> orgs) async {
+    final generation = ++_fetchGeneration;
     // Stale-while-revalidate: only show a skeleton on the first load.
     if (_orgTests.isEmpty) {
       _isLoading = true;
@@ -33,21 +35,43 @@ class TestProvider extends ChangeNotifier {
     _error = null;
 
     try {
-      // One collectionGroup query fetches every org's test catalogue in a
-      // single round-trip, instead of one request per org.
-      final orgIds = orgs.map((o) => o.id).toSet();
-      final snapshot = await _firestoreService.getCollectionGroup('tests');
-      final map = {for (final id in orgIds) id: <DiagnosticTestModel>[]};
-      for (final doc in snapshot.docs) {
-        final orgId = doc.reference.parent.parent?.id;
-        if (orgId == null || !map.containsKey(orgId)) continue;
-        map[orgId]!.add(DiagnosticTestModel.fromFirestore(doc, orgId));
+      final map = <String, List<DiagnosticTestModel>>{};
+      for (var start = 0; start < orgs.length; start += 8) {
+        final end = (start + 8).clamp(0, orgs.length);
+        final results = await Future.wait(
+          orgs.sublist(start, end).map((organization) async {
+            final snapshot = await _firestoreService.getCollection(
+              'organizations/${organization.id}/tests',
+              limit: 201,
+            );
+            if (snapshot.docs.length > 200) {
+              throw StateError(
+                '${organization.name} has more than 200 tests; use an organization-specific paged view.',
+              );
+            }
+            return MapEntry(
+              organization.id,
+              snapshot.docs
+                  .map(
+                    (doc) => DiagnosticTestModel.fromFirestore(
+                      doc,
+                      organization.id,
+                    ),
+                  )
+                  .toList(),
+            );
+          }),
+        );
+        if (generation != _fetchGeneration) return;
+        map.addEntries(results);
       }
       _orgTests = map;
     } catch (e) {
+      if (generation != _fetchGeneration) return;
       _error = 'Failed to load tests: $e';
     }
 
+    if (generation != _fetchGeneration) return;
     _isLoading = false;
     notifyListeners();
   }
@@ -136,6 +160,7 @@ class TestProvider extends ChangeNotifier {
   }
 
   Future<List<DiagnosticTestModel>> fetchTestsForOrg(String orgId) async {
+    final generation = ++_fetchGeneration;
     try {
       final snapshot = await _firestoreService.getCollection(
         'organizations/$orgId/tests',
@@ -143,11 +168,15 @@ class TestProvider extends ChangeNotifier {
       final tests = snapshot.docs
           .map((doc) => DiagnosticTestModel.fromFirestore(doc, orgId))
           .toList();
+      if (generation != _fetchGeneration) return tests;
       _orgTests[orgId] = tests;
+      _isLoading = false;
       notifyListeners();
       return tests;
     } catch (e) {
+      if (generation != _fetchGeneration) return [];
       _error = 'Failed to load tests: $e';
+      _isLoading = false;
       notifyListeners();
       return [];
     }

@@ -26,17 +26,32 @@ class _DiagnosticQueueOverviewScreenState
   Stream<List<BookingRequestModel>>? _queueStream;
   late String _status;
   String? _workingBookingId;
+  String? _organizationId;
+  String? _scopeKey;
+  int _scopeGeneration = 0;
 
   @override
   void initState() {
     super.initState();
     _status = _validStatus(widget.initialStatus);
-    final organizationId = context.read<AuthProvider>().user?.organizationId;
-    if (organizationId != null) {
-      _queueStream = context.read<BookingProvider>().watchDiagnosticQueue(
-        organizationId,
-      );
-    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final auth = context.watch<AuthProvider>();
+    final user = auth.user;
+    final scopeKey = '${user?.uid}|${user?.role}|${user?.organizationId}';
+    if (scopeKey == _scopeKey) return;
+    _scopeKey = scopeKey;
+    _organizationId = auth.isTestAdmin ? user?.organizationId : null;
+    _workingBookingId = null;
+    ++_scopeGeneration;
+    _queueStream = _organizationId == null
+        ? null
+        : context.read<BookingProvider>().watchDiagnosticQueue(
+            _organizationId!,
+          );
   }
 
   @override
@@ -63,18 +78,37 @@ class _DiagnosticQueueOverviewScreenState
     BookingRequestModel booking,
     Future<void> Function() action,
   ) async {
+    final organizationId = _organizationId;
+    final generation = _scopeGeneration;
+    if (organizationId == null ||
+        booking.organizationId != organizationId ||
+        !_isCurrentScope(organizationId, generation)) {
+      return;
+    }
     setState(() => _workingBookingId = booking.id);
     try {
       await action();
+      if (!_isCurrentScope(organizationId, generation)) return;
     } catch (e) {
-      if (mounted) {
+      if (_isCurrentScope(organizationId, generation)) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('$e')));
       }
     } finally {
-      if (mounted) setState(() => _workingBookingId = null);
+      if (_isCurrentScope(organizationId, generation)) {
+        setState(() => _workingBookingId = null);
+      }
     }
+  }
+
+  bool _isCurrentScope(String organizationId, int generation) {
+    if (!mounted) return false;
+    final auth = context.read<AuthProvider>();
+    return generation == _scopeGeneration &&
+        _organizationId == organizationId &&
+        auth.isTestAdmin &&
+        auth.user?.organizationId == organizationId;
   }
 
   @override
@@ -85,6 +119,7 @@ class _DiagnosticQueueOverviewScreenState
     }
 
     return StreamBuilder<List<BookingRequestModel>>(
+      key: ValueKey('$_organizationId:$_scopeGeneration'),
       stream: queueStream,
       builder: (context, snapshot) {
         if (snapshot.hasError) {

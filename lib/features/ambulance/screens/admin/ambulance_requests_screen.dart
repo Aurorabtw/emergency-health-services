@@ -20,28 +20,73 @@ class AmbulanceRequestsScreen extends StatefulWidget {
 
 class _AmbulanceRequestsScreenState extends State<AmbulanceRequestsScreen> {
   String? _orgId;
+  String? _scopeKey;
+  List<BookingRequestModel> _bookings = [];
+  bool _isLoading = false;
+  int _scopeGeneration = 0;
 
   @override
-  void initState() {
-    super.initState();
-    _orgId = context.read<AuthProvider>().user?.organizationId;
-    _loadRequests();
-  }
-
-  void _loadRequests() {
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final auth = context.watch<AuthProvider>();
+    final user = auth.user;
+    final scopeKey = '${user?.uid}|${user?.role}|${user?.organizationId}';
+    if (scopeKey == _scopeKey) return;
+    _scopeKey = scopeKey;
+    _orgId = auth.isAmbulanceAdmin ? user?.organizationId : null;
+    _bookings = [];
+    _isLoading = _orgId != null;
+    final generation = ++_scopeGeneration;
     if (_orgId != null) {
-      context.read<BookingProvider>().fetchOrganizationBookings(
-        _orgId!,
-        type: 'ambulance',
-      );
-      context.read<AmbulanceProvider>().fetchAmbulancesForOrg(_orgId!);
+      Future.microtask(() => _loadRequests(generation: generation));
     }
   }
 
+  Future<void> _loadRequests({int? generation}) async {
+    final organizationId = _orgId;
+    final capturedGeneration = generation ?? _scopeGeneration;
+    if (organizationId == null) return;
+    if (!_isCurrentScope(organizationId, capturedGeneration)) return;
+    if (generation == null) setState(() => _isLoading = true);
+    final bookingProvider = context.read<BookingProvider>();
+    await Future.wait([
+      bookingProvider.fetchOrganizationBookings(
+        organizationId,
+        type: 'ambulance',
+      ),
+      context.read<AmbulanceProvider>().fetchAmbulancesForOrg(organizationId),
+    ]);
+    if (!_isCurrentScope(organizationId, capturedGeneration)) return;
+    setState(() {
+      _bookings = bookingProvider.bookings
+          .where(
+            (booking) =>
+                booking.organizationId == organizationId &&
+                booking.type == 'ambulance',
+          )
+          .toList();
+      _isLoading = false;
+    });
+  }
+
+  bool _isCurrentScope(String organizationId, int generation) {
+    if (!mounted) return false;
+    final auth = context.read<AuthProvider>();
+    return generation == _scopeGeneration &&
+        _orgId == organizationId &&
+        auth.isAmbulanceAdmin &&
+        auth.user?.organizationId == organizationId;
+  }
+
   Future<void> _approve(BookingRequestModel booking) async {
+    final organizationId = _orgId;
+    final generation = _scopeGeneration;
+    if (organizationId == null || booking.organizationId != organizationId) {
+      return;
+    }
     try {
       final ambulances = context.read<AmbulanceProvider>().getAmbulancesForOrg(
-        _orgId!,
+        organizationId,
       );
       final match = ambulances
           .where((a) => a.type == booking.ambulanceType && a.isAvailable)
@@ -54,13 +99,14 @@ class _AmbulanceRequestsScreenState extends State<AmbulanceRequestsScreen> {
 
       await context.read<BookingProvider>().confirmAmbulanceBooking(
         bookingId: booking.id,
-        organizationId: _orgId!,
+        organizationId: organizationId,
         ambulanceId: match.id,
       );
-      if (!mounted) return;
-      _loadRequests();
+      if (!_isCurrentScope(organizationId, generation)) return;
+      await _loadRequests(generation: generation);
+      if (!_isCurrentScope(organizationId, generation)) return;
     } catch (e) {
-      if (mounted) {
+      if (_isCurrentScope(organizationId, generation)) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text(e.toString())));
@@ -69,9 +115,14 @@ class _AmbulanceRequestsScreenState extends State<AmbulanceRequestsScreen> {
   }
 
   Future<void> _complete(BookingRequestModel booking) async {
+    final organizationId = _orgId;
+    final generation = _scopeGeneration;
+    if (organizationId == null || booking.organizationId != organizationId) {
+      return;
+    }
     try {
       final ambulances = context.read<AmbulanceProvider>().getAmbulancesForOrg(
-        _orgId!,
+        organizationId,
       );
       final match = booking.ambulanceId != null
           ? ambulances.where((a) => a.id == booking.ambulanceId).firstOrNull
@@ -86,13 +137,14 @@ class _AmbulanceRequestsScreenState extends State<AmbulanceRequestsScreen> {
 
       await context.read<BookingProvider>().completeAmbulanceBooking(
         bookingId: booking.id,
-        organizationId: _orgId!,
+        organizationId: organizationId,
         ambulanceId: match.id,
       );
-      if (!mounted) return;
-      _loadRequests();
+      if (!_isCurrentScope(organizationId, generation)) return;
+      await _loadRequests(generation: generation);
+      if (!_isCurrentScope(organizationId, generation)) return;
     } catch (e) {
-      if (mounted) {
+      if (_isCurrentScope(organizationId, generation)) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text(e.toString())));
@@ -101,13 +153,51 @@ class _AmbulanceRequestsScreenState extends State<AmbulanceRequestsScreen> {
   }
 
   Future<void> _reject(BookingRequestModel booking) async {
+    final organizationId = _orgId;
+    final generation = _scopeGeneration;
+    if (organizationId == null || booking.organizationId != organizationId) {
+      return;
+    }
     await context.read<BookingProvider>().rejectBooking(booking.id);
-    _loadRequests();
+    if (!_isCurrentScope(organizationId, generation)) return;
+    await _loadRequests(generation: generation);
+    if (!_isCurrentScope(organizationId, generation)) return;
+  }
+
+  Future<void> _loadMore() async {
+    final organizationId = _orgId;
+    final generation = _scopeGeneration;
+    if (organizationId == null) return;
+    final bookingProvider = context.read<BookingProvider>();
+    await bookingProvider.loadMoreBookings();
+    if (!_isCurrentScope(organizationId, generation)) return;
+    setState(() {
+      _bookings = bookingProvider.bookings
+          .where(
+            (booking) =>
+                booking.organizationId == organizationId &&
+                booking.type == 'ambulance',
+          )
+          .toList();
+    });
+  }
+
+  Future<void> _cleanTerminalBookings() async {
+    final organizationId = _orgId;
+    final generation = _scopeGeneration;
+    if (organizationId == null) return;
+    await _loadRequests(generation: generation);
+    if (!_isCurrentScope(organizationId, generation)) return;
+    await context.read<BookingProvider>().clearTerminalBookings();
+    if (!_isCurrentScope(organizationId, generation)) return;
+    setState(() => _bookings.removeWhere((booking) => booking.isTerminal));
   }
 
   @override
   Widget build(BuildContext context) {
-    final bookingProvider = context.watch<BookingProvider>();
+    if (_orgId == null) {
+      return const Center(child: Text('No organization assigned'));
+    }
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),
@@ -126,12 +216,10 @@ class _AmbulanceRequestsScreenState extends State<AmbulanceRequestsScreen> {
                     ),
                   ),
                   const Spacer(),
-                  if (bookingProvider.bookings.any((b) => b.isTerminal))
+                  if (_bookings.any((b) => b.isTerminal))
                     TextButton.icon(
                       onPressed: () async {
-                        await context
-                            .read<BookingProvider>()
-                            .clearTerminalBookings();
+                        await _cleanTerminalBookings();
                       },
                       icon: const Icon(Icons.cleaning_services, size: 18),
                       label: const Text('Clean'),
@@ -143,9 +231,9 @@ class _AmbulanceRequestsScreenState extends State<AmbulanceRequestsScreen> {
                 ],
               ),
               const SizedBox(height: 16),
-              if (bookingProvider.isLoading)
+              if (_isLoading)
                 const Center(child: CircularProgressIndicator())
-              else if (bookingProvider.bookings.isEmpty)
+              else if (_bookings.isEmpty)
                 const Center(
                   child: Padding(
                     padding: EdgeInsets.all(48),
@@ -153,7 +241,7 @@ class _AmbulanceRequestsScreenState extends State<AmbulanceRequestsScreen> {
                   ),
                 )
               else
-                ...bookingProvider.bookings.map(
+                ..._bookings.map(
                   (booking) => Card(
                     margin: const EdgeInsets.only(bottom: 12),
                     clipBehavior: Clip.antiAlias,
@@ -249,6 +337,29 @@ class _AmbulanceRequestsScreenState extends State<AmbulanceRequestsScreen> {
                     ),
                   ),
                 ),
+              if (context.watch<BookingProvider>().hasMoreBookings) ...[
+                const SizedBox(height: 8),
+                Center(
+                  child: OutlinedButton.icon(
+                    onPressed: _isLoading ||
+                            context.watch<BookingProvider>().isLoadingMore
+                        ? null
+                        : _loadMore,
+                    icon: context.watch<BookingProvider>().isLoadingMore
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.expand_more),
+                    label: Text(
+                      context.watch<BookingProvider>().isLoadingMore
+                          ? 'Loading…'
+                          : 'Load older requests',
+                    ),
+                  ),
+                ),
+              ],
             ],
           ),
         ),

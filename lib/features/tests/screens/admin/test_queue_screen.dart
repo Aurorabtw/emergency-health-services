@@ -23,42 +23,90 @@ class _TestQueueScreenState extends State<TestQueueScreen> {
   Stream<List<BookingRequestModel>>? _queueStream;
   String? _organizationId;
   String? _workingBookingId;
+  String? _scopeKey;
+  int _scopeGeneration = 0;
 
   @override
-  void initState() {
-    super.initState();
-    _organizationId = context.read<AuthProvider>().user?.organizationId;
-    final organizationId = _organizationId;
-    if (organizationId != null) {
-      context.read<TestProvider>().fetchTestsForOrg(organizationId);
-      _queueStream = context.read<BookingProvider>().watchDiagnosticQueue(
-        organizationId,
-      );
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final auth = context.watch<AuthProvider>();
+    final user = auth.user;
+    final scopeKey = '${user?.uid}|${user?.role}|${user?.organizationId}';
+    if (scopeKey == _scopeKey) return;
+    _scopeKey = scopeKey;
+    _organizationId = auth.isTestAdmin ? user?.organizationId : null;
+    _workingBookingId = null;
+    _reloadScope();
+  }
+
+  @override
+  void didUpdateWidget(covariant TestQueueScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.testId != widget.testId) {
+      _workingBookingId = null;
+      _reloadScope();
     }
   }
 
-  bool _isToday(BookingRequestModel booking) {
-    final now = DateTime.now().toUtc().add(const Duration(hours: 6));
-    return booking.queueYear == now.year &&
-        booking.queueMonth == now.month &&
-        booking.queueDay == now.day;
+  void _reloadScope() {
+    final organizationId = _organizationId;
+    final testId = widget.testId;
+    final generation = ++_scopeGeneration;
+    _queueStream = organizationId == null
+        ? null
+        : context.read<BookingProvider>().watchDiagnosticQueue(organizationId);
+    if (organizationId != null) {
+      Future.microtask(() => _loadScope(organizationId, testId, generation));
+    }
+  }
+
+  Future<void> _loadScope(
+    String organizationId,
+    String testId,
+    int generation,
+  ) async {
+    if (!_isCurrentScope(organizationId, testId, generation)) return;
+    await context.read<TestProvider>().fetchTestsForOrg(organizationId);
+    if (!_isCurrentScope(organizationId, testId, generation)) return;
+  }
+
+  bool _isCurrentScope(String organizationId, String testId, int generation) {
+    if (!mounted) return false;
+    final auth = context.read<AuthProvider>();
+    return generation == _scopeGeneration &&
+        _organizationId == organizationId &&
+        widget.testId == testId &&
+        auth.isTestAdmin &&
+        auth.user?.organizationId == organizationId;
   }
 
   Future<void> _runAction(
     BookingRequestModel booking,
     Future<void> Function() action,
   ) async {
+    final organizationId = _organizationId;
+    final testId = widget.testId;
+    final generation = _scopeGeneration;
+    if (organizationId == null ||
+        booking.organizationId != organizationId ||
+        booking.testId != testId ||
+        !_isCurrentScope(organizationId, testId, generation)) {
+      return;
+    }
     setState(() => _workingBookingId = booking.id);
     try {
       await action();
+      if (!_isCurrentScope(organizationId, testId, generation)) return;
     } catch (e) {
-      if (mounted) {
+      if (_isCurrentScope(organizationId, testId, generation)) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('$e')));
       }
     } finally {
-      if (mounted) setState(() => _workingBookingId = null);
+      if (_isCurrentScope(organizationId, testId, generation)) {
+        setState(() => _workingBookingId = null);
+      }
     }
   }
 
@@ -66,6 +114,14 @@ class _TestQueueScreenState extends State<TestQueueScreen> {
     BookingRequestModel booking,
     BookingProvider provider,
   ) async {
+    final organizationId = _organizationId;
+    final testId = widget.testId;
+    final generation = _scopeGeneration;
+    if (organizationId == null ||
+        booking.organizationId != organizationId ||
+        booking.testId != testId) {
+      return;
+    }
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -86,11 +142,13 @@ class _TestQueueScreenState extends State<TestQueueScreen> {
         ],
       ),
     );
-    if (confirmed == true && mounted) {
+    if (confirmed == true &&
+        _isCurrentScope(organizationId, testId, generation)) {
       await _runAction(
         booking,
         () => provider.cancelDiagnosticSerial(booking.id),
       );
+      if (!_isCurrentScope(organizationId, testId, generation)) return;
     }
   }
 
@@ -111,6 +169,7 @@ class _TestQueueScreenState extends State<TestQueueScreen> {
     }
 
     return StreamBuilder<List<BookingRequestModel>>(
+      key: ValueKey('$organizationId:${widget.testId}:$_scopeGeneration'),
       stream: _queueStream,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
@@ -128,22 +187,14 @@ class _TestQueueScreenState extends State<TestQueueScreen> {
         final testBookings = snapshot.data!
             .where((booking) => booking.testId == widget.testId)
             .toList();
-        final queue =
-            testBookings
-                .where(
-                  (booking) =>
-                      _isToday(booking) ||
-                      booking.isPending ||
-                      booking.isConfirmed,
-                )
-                .toList()
-              ..sort(
-                (a, b) => (a.serialNumber ?? 0).compareTo(b.serialNumber ?? 0),
-              );
+        final queue = testBookings
+          ..sort(
+            (a, b) => (a.serialNumber ?? 0).compareTo(b.serialNumber ?? 0),
+          );
         final waiting = queue.where((booking) => booking.isPending).toList();
         final called = queue.where((booking) => booking.isConfirmed).toList();
         final completed = queue.where((booking) => booking.isAdmitted).length;
-        final todayTotal = testBookings.where(_isToday).length;
+        final todayTotal = testBookings.length;
         final current = called.isEmpty ? null : called.first;
         final next = waiting.isEmpty ? null : waiting.first;
         final provider = context.read<BookingProvider>();

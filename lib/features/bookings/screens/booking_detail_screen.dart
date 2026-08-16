@@ -1,5 +1,6 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
@@ -20,7 +21,6 @@ class BookingDetailScreen extends StatefulWidget {
 
 class _BookingDetailScreenState extends State<BookingDetailScreen> {
   late Stream<BookingRequestModel?> _bookingStream;
-  bool _isRetaking = false;
 
   @override
   void initState() {
@@ -45,34 +45,6 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
     }
   }
 
-  Future<void> _retakeDiagnosticSerial(BookingRequestModel booking) async {
-    final testId = booking.testId;
-    if (testId == null) return;
-
-    setState(() => _isRetaking = true);
-    try {
-      final bookingId = await context
-          .read<BookingProvider>()
-          .createDiagnosticSerial(
-            organizationId: booking.organizationId,
-            organizationName: booking.organizationName ?? 'Hospital',
-            userId: booking.userId,
-            patientName: booking.patientName,
-            contactNumber: booking.contactNumber,
-            testId: testId,
-          );
-      if (mounted) context.go('/booking/$bookingId');
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('$e')));
-      }
-    } finally {
-      if (mounted) setState(() => _isRetaking = false);
-    }
-  }
-
   @override
   void didUpdateWidget(covariant BookingDetailScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -86,6 +58,7 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<BookingRequestModel?>(
+      key: ValueKey(widget.bookingId),
       stream: _bookingStream,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
@@ -211,27 +184,7 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
                                 ),
                                 const SizedBox(height: 4),
                                 const Text(
-                                  'Take another serial to rejoin today\'s diagnostic queue.',
-                                ),
-                                const SizedBox(height: 12),
-                                FilledButton.icon(
-                                  onPressed: _isRetaking
-                                      ? null
-                                      : () => _retakeDiagnosticSerial(booking),
-                                  icon: _isRetaking
-                                      ? const SizedBox(
-                                          width: 18,
-                                          height: 18,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                          ),
-                                        )
-                                      : const Icon(Icons.refresh),
-                                  label: Text(
-                                    _isRetaking
-                                        ? 'Issuing new serial...'
-                                        : 'Take Another Serial',
-                                  ),
+                                  'Only one serial may be issued for this test per day. You can request a new serial tomorrow.',
                                 ),
                               ],
                             ),
@@ -419,15 +372,36 @@ class _DetailRowWidget extends StatelessWidget {
   }
 }
 
-class _HoldCountdown extends StatelessWidget {
+class _HoldCountdown extends StatefulWidget {
   final DateTime heldUntil;
 
   const _HoldCountdown({required this.heldUntil});
 
   @override
+  State<_HoldCountdown> createState() => _HoldCountdownState();
+}
+
+class _HoldCountdownState extends State<_HoldCountdown> {
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final remaining = heldUntil.difference(DateTime.now());
-    final isExpired = remaining.isNegative;
+    final remaining = widget.heldUntil.difference(DateTime.now());
+    final isExpired = remaining <= Duration.zero;
 
     return Container(
       padding: const EdgeInsets.all(16),

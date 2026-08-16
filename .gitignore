@@ -32,6 +32,7 @@ migrate_working_dir/
 .pub/
 /build/
 /coverage/
+/node_modules/
 
 # Firebase Hosting deploy cache
 .firebase/

@@ -13,6 +13,9 @@ class LocationProvider extends ChangeNotifier {
   /// Cached road distances: orgId → distance in km.
   final Map<String, double> _roadDistances = {};
   bool _roadDistancesLoaded = false;
+  Future<void>? _locationRequest;
+  int _locationGeneration = 0;
+  int _distanceGeneration = 0;
 
   Position? get currentPosition => _currentPosition;
   bool get isLoading => _isLoading;
@@ -23,20 +26,35 @@ class LocationProvider extends ChangeNotifier {
   double? get latitude => _currentPosition?.latitude;
   double? get longitude => _currentPosition?.longitude;
 
-  Future<void> getCurrentLocation() async {
+  Future<void> getCurrentLocation() {
+    if (_locationRequest != null) return _locationRequest!;
+    final request = _loadCurrentLocation();
+    _locationRequest = request;
+    return request.whenComplete(() => _locationRequest = null);
+  }
+
+  Future<void> _loadCurrentLocation() async {
+    final generation = ++_locationGeneration;
     _isLoading = true;
     _error = null;
     notifyListeners();
 
     try {
-      _currentPosition = await _locationService.getCurrentPosition();
-      if (_currentPosition == null) {
+      final position = await _locationService.getCurrentPosition();
+      if (generation != _locationGeneration) return;
+      _currentPosition = position;
+      _roadDistances.clear();
+      _roadDistancesLoaded = false;
+      _distanceGeneration++;
+      if (position == null) {
         _error = 'Unable to get location. Please enable location services.';
       }
     } catch (e) {
+      if (generation != _locationGeneration) return;
       _error = 'Failed to get location: $e';
     }
 
+    if (generation != _locationGeneration) return;
     _isLoading = false;
     notifyListeners();
   }
@@ -45,14 +63,19 @@ class LocationProvider extends ChangeNotifier {
   /// Call this after getting user location and loading organizations.
   Future<void> fetchRoadDistances(List<({double lat, double lng, String id})> destinations) async {
     if (_currentPosition == null || destinations.isEmpty) return;
+    final position = _currentPosition!;
+    final generation = ++_distanceGeneration;
 
     final results = await _locationService.getRoadDistances(
-      _currentPosition!.latitude,
-      _currentPosition!.longitude,
+      position.latitude,
+      position.longitude,
       destinations,
     );
 
-    if (results.isNotEmpty) {
+    if (generation == _distanceGeneration &&
+        _currentPosition?.latitude == position.latitude &&
+        _currentPosition?.longitude == position.longitude &&
+        results.isNotEmpty) {
       _roadDistances.addAll(results);
       _roadDistancesLoaded = true;
       notifyListeners();

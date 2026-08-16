@@ -34,64 +34,82 @@ class _OrgAdminDashboardState extends State<OrgAdminDashboard> {
   bool _diagnosticLoading = false;
   String? _bookingsError;
   String? _diagnosticError;
+  int _scopeGeneration = 0;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     final auth = context.watch<AuthProvider>();
-    final orgId = auth.user?.organizationId;
+    final orgId = auth.isOrgAdmin ? auth.user?.organizationId : null;
     final role = auth.user?.role;
     if (orgId == _loadedOrgId && role == _loadedRole) return;
 
     _loadedOrgId = orgId;
     _loadedRole = role;
-    Future.microtask(() => _loadOrg(orgId));
+    final generation = ++_scopeGeneration;
+    _org = null;
+    _isLoading = true;
+    _liveBookings = [];
+    _diagnosticBookings = [];
+    _bookingsLoading = false;
+    _diagnosticLoading = false;
+    _bookingsError = null;
+    _diagnosticError = null;
+    Future.microtask(() => _loadOrg(orgId, role, generation));
   }
 
-  Future<void> _loadOrg(String? orgId) async {
-    if (mounted) {
-      setState(() {
-        _org = null;
-        _isLoading = true;
-      });
-    }
+  Future<void> _loadOrg(String? orgId, String? role, int generation) async {
+    await _bookingSubscription?.cancel();
+    if (!_isCurrentScope(orgId, role, generation)) return;
+    await _diagnosticSubscription?.cancel();
+    if (!_isCurrentScope(orgId, role, generation)) return;
+    _bookingSubscription = null;
+    _diagnosticSubscription = null;
 
     if (orgId != null) {
       final org = await context.read<OrganizationProvider>().getOrganization(
         orgId,
       );
-      if (!mounted ||
-          context.read<AuthProvider>().user?.organizationId != orgId) {
-        return;
-      }
+      if (!_isCurrentScope(orgId, role, generation)) return;
       setState(() {
         _org = org;
         _isLoading = false;
       });
       if (org != null) {
-        await _loadDashboardData(org);
+        await _loadDashboardData(org, role, generation);
+        if (!_isCurrentScope(orgId, role, generation)) return;
       }
     } else {
-      await _bookingSubscription?.cancel();
-      await _diagnosticSubscription?.cancel();
-      _bookingSubscription = null;
-      _diagnosticSubscription = null;
-      if (mounted) {
-        setState(() {
-          _org = null;
-          _isLoading = false;
-          _liveBookings = [];
-          _diagnosticBookings = [];
-          _bookingsLoading = false;
-          _diagnosticLoading = false;
-          _bookingsError = null;
-          _diagnosticError = null;
-        });
-      }
+      setState(() => _isLoading = false);
     }
   }
 
-  Future<void> _loadDashboardData(OrganizationModel org) async {
+  bool _isCurrentScope(String? orgId, String? role, int generation) {
+    if (!mounted) return false;
+    final auth = context.read<AuthProvider>();
+    return generation == _scopeGeneration &&
+        _loadedOrgId == orgId &&
+        _loadedRole == role &&
+        (orgId == null || auth.isOrgAdmin) &&
+        auth.user?.organizationId == orgId &&
+        auth.user?.role == role;
+  }
+
+  Future<void> _refreshDashboard() async {
+    final org = _org;
+    final role = _loadedRole;
+    final generation = _scopeGeneration;
+    if (org == null || !_isCurrentScope(org.id, role, generation)) return;
+    await _loadDashboardData(org, role, generation);
+    if (!_isCurrentScope(org.id, role, generation)) return;
+  }
+
+  Future<void> _loadDashboardData(
+    OrganizationModel org,
+    String? role,
+    int generation,
+  ) async {
+    if (!_isCurrentScope(org.id, role, generation)) return;
     final auth = context.read<AuthProvider>();
     final requestType = auth.isBedAdmin
         ? 'bed'
@@ -101,10 +119,11 @@ class _OrgAdminDashboardState extends State<OrgAdminDashboard> {
         ? 'ambulance'
         : null;
     await _bookingSubscription?.cancel();
+    if (!_isCurrentScope(org.id, role, generation)) return;
     await _diagnosticSubscription?.cancel();
+    if (!_isCurrentScope(org.id, role, generation)) return;
     _bookingSubscription = null;
     _diagnosticSubscription = null;
-    if (!mounted) return;
 
     setState(() {
       _liveBookings = [];
@@ -123,7 +142,7 @@ class _OrgAdminDashboardState extends State<OrgAdminDashboard> {
       );
       _bookingSubscription = bookingStream.listen(
         (bookings) {
-          if (!mounted) return;
+          if (!_isCurrentScope(org.id, role, generation)) return;
           setState(() {
             _liveBookings = bookings;
             _bookingsLoading = false;
@@ -131,7 +150,7 @@ class _OrgAdminDashboardState extends State<OrgAdminDashboard> {
           });
         },
         onError: (Object error) {
-          if (!mounted) return;
+          if (!_isCurrentScope(org.id, role, generation)) return;
           setState(() {
             _bookingsLoading = false;
             _bookingsError = error.toString();
@@ -146,7 +165,7 @@ class _OrgAdminDashboardState extends State<OrgAdminDashboard> {
           .watchDiagnosticQueue(org.id)
           .listen(
             (bookings) {
-              if (!mounted) return;
+              if (!_isCurrentScope(org.id, role, generation)) return;
               setState(() {
                 _diagnosticBookings = bookings;
                 _diagnosticLoading = false;
@@ -154,7 +173,7 @@ class _OrgAdminDashboardState extends State<OrgAdminDashboard> {
               });
             },
             onError: (Object error) {
-              if (!mounted) return;
+              if (!_isCurrentScope(org.id, role, generation)) return;
               setState(() {
                 _diagnosticLoading = false;
                 _diagnosticError = error.toString();
@@ -172,6 +191,7 @@ class _OrgAdminDashboardState extends State<OrgAdminDashboard> {
       if (auth.isAmbulanceAdmin)
         context.read<AmbulanceProvider>().fetchAmbulancesForOrg(org.id),
     ]);
+    if (!_isCurrentScope(org.id, role, generation)) return;
   }
 
   @override
@@ -243,7 +263,7 @@ class _OrgAdminDashboardState extends State<OrgAdminDashboard> {
     final availableAmbulances = ambulances.where((a) => a.isAvailable).length;
 
     return RefreshIndicator(
-      onRefresh: () => _loadDashboardData(_org!),
+      onRefresh: _refreshDashboard,
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: Center(
@@ -258,7 +278,7 @@ class _OrgAdminDashboardState extends State<OrgAdminDashboard> {
                   isLoading:
                       (handlesBookings && _bookingsLoading) ||
                       (handlesDiagnosticQueue && _diagnosticLoading),
-                  onRefresh: () => _loadDashboardData(_org!),
+                  onRefresh: _refreshDashboard,
                 ),
                 const SizedBox(height: 20),
                 Wrap(

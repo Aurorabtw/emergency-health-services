@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../../../models/organization_model.dart';
+import '../../../../providers/auth_provider.dart';
 import '../../../../providers/organization_provider.dart';
 import '../../../../shared/utils/validators.dart';
 
@@ -23,13 +24,13 @@ class _ManageOrganizationsScreenState extends State<ManageOrganizationsScreen> {
     context.read<OrganizationProvider>().fetchOrganizations();
   }
 
-  void _confirmDeleteOrg(OrganizationModel org) {
+  void _confirmArchiveOrg(OrganizationModel org) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Remove Organization'),
+        title: const Text('Archive Organization'),
         content: Text(
-          'Are you sure you want to remove "${org.name}"? This action cannot be undone.',
+          'Archive "${org.name}"? It will be removed from public listings and organization-admin access will stop. Historical inventory and bookings will be retained. All assigned admins and active bookings must be resolved first.',
         ),
         actions: [
           TextButton(
@@ -40,15 +41,68 @@ class _ManageOrganizationsScreenState extends State<ManageOrganizationsScreen> {
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () async {
               Navigator.pop(ctx);
-              await context.read<OrganizationProvider>().deleteOrganization(
-                org.id,
-              );
+              final archivedBy = context.read<AuthProvider>().user?.uid;
+              if (archivedBy == null) return;
+              try {
+                await context.read<OrganizationProvider>().archiveOrganization(
+                  orgId: org.id,
+                  archivedBy: archivedBy,
+                );
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('${org.name} was archived.')),
+                );
+              } catch (error) {
+                if (!mounted) return;
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(SnackBar(content: Text('$error')));
+              }
             },
-            child: const Text('Remove'),
+            child: const Text('Archive'),
           ),
         ],
       ),
     );
+  }
+
+  Future<void> _restoreOrg(OrganizationModel org) async {
+    try {
+      await context.read<OrganizationProvider>().restoreOrganization(org.id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '${org.name} was restored as unverified. Verify it before publishing services.',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('$error')));
+    }
+  }
+
+  Future<void> _cancelArchiveLock(OrganizationModel org) async {
+    final cancelledBy = context.read<AuthProvider>().user?.uid;
+    if (cancelledBy == null) return;
+    try {
+      await context.read<OrganizationProvider>().cancelArchiveLock(
+        orgId: org.id,
+        cancelledBy: cancelledBy,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Archive lock for ${org.name} was cancelled.')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('$error')));
+    }
   }
 
   void _showAddDialog() {
@@ -175,14 +229,20 @@ class _ManageOrganizationsScreenState extends State<ManageOrganizationsScreen> {
                   (org) => Card(
                     margin: const EdgeInsets.only(bottom: 8),
                     child: ListTile(
-                      onTap: () => _showEditDialog(org),
+                      onTap: org.isActive ? () => _showEditDialog(org) : null,
                       leading: CircleAvatar(
-                        backgroundColor: org.verified
+                        backgroundColor: org.isArchiving || org.archived
+                            ? Colors.grey.shade200
+                            : org.verified
                             ? Colors.green.shade50
                             : Colors.orange.shade50,
                         child: Icon(
                           _orgIcon(org.type),
-                          color: org.verified ? Colors.green : Colors.orange,
+                          color: org.isArchiving || org.archived
+                              ? Colors.grey
+                              : org.verified
+                              ? Colors.green
+                              : Colors.orange,
                         ),
                       ),
                       title: Text(
@@ -195,7 +255,7 @@ class _ManageOrganizationsScreenState extends State<ManageOrganizationsScreen> {
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          if (!org.verified)
+                          if (!org.verified && org.isActive)
                             TextButton(
                               onPressed: () async {
                                 await context
@@ -207,12 +267,24 @@ class _ManageOrganizationsScreenState extends State<ManageOrganizationsScreen> {
                               child: const Text('Verify'),
                             ),
                           Chip(
-                            label: Text(org.verified ? 'Verified' : 'Pending'),
-                            backgroundColor: org.verified
+                            label: Text(
+                              org.archived
+                                  ? 'Archived'
+                                  : org.isArchiving
+                                  ? 'Archiving'
+                                  : org.verified
+                                  ? 'Verified'
+                                  : 'Pending',
+                            ),
+                            backgroundColor: org.archived || org.isArchiving
+                                ? Colors.grey.shade100
+                                : org.verified
                                 ? Colors.green.shade50
                                 : Colors.orange.shade50,
                             side: BorderSide(
-                              color: org.verified
+                              color: org.archived || org.isArchiving
+                                  ? Colors.grey
+                                  : org.verified
                                   ? Colors.green
                                   : Colors.orange,
                             ),
@@ -220,11 +292,29 @@ class _ManageOrganizationsScreenState extends State<ManageOrganizationsScreen> {
                           const SizedBox(width: 8),
                           IconButton(
                             icon: Icon(
-                              Icons.delete_outline,
-                              color: Colors.red.shade400,
+                              org.archived
+                                  ? Icons.unarchive_outlined
+                                  : org.isArchiving
+                                  ? Icons.lock_reset_outlined
+                                  : Icons.archive_outlined,
+                              color: org.archived || org.isArchiving
+                                  ? Colors.blue.shade600
+                                  : Colors.red.shade400,
                             ),
-                            tooltip: 'Remove Organization',
-                            onPressed: () => _confirmDeleteOrg(org),
+                            tooltip: org.archived
+                                ? 'Restore Organization'
+                                : org.isArchiving
+                                ? 'Cancel Archive Lock'
+                                : 'Archive Organization',
+                            onPressed: () {
+                              if (org.archived) {
+                                _restoreOrg(org);
+                              } else if (org.isArchiving) {
+                                _cancelArchiveLock(org);
+                              } else {
+                                _confirmArchiveOrg(org);
+                              }
+                            },
                           ),
                         ],
                       ),
@@ -352,6 +442,12 @@ class _OrganizationFormDialogState extends State<_OrganizationFormDialog> {
             ? null
             : _emailController.text.trim(),
         verified: widget.organization?.verified ?? true,
+        lifecycleState: widget.organization?.lifecycleState ?? 'active',
+        archived: widget.organization?.archived ?? false,
+        archiveLockAt: widget.organization?.archiveLockAt,
+        archiveLockBy: widget.organization?.archiveLockBy,
+        archivedAt: widget.organization?.archivedAt,
+        archivedBy: widget.organization?.archivedBy,
         createdAt: widget.organization?.createdAt ?? DateTime.now(),
         updatedAt: DateTime.now(),
       );

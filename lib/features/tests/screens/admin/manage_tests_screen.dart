@@ -21,40 +21,68 @@ class ManageTestsScreen extends StatefulWidget {
 class _ManageTestsScreenState extends State<ManageTestsScreen> {
   String? _orgId;
   Stream<List<BookingRequestModel>>? _queueStream;
+  String? _scopeKey;
+  bool _isScopeLoading = false;
+  int _scopeGeneration = 0;
 
   @override
-  void initState() {
-    super.initState();
-    _orgId = context.read<AuthProvider>().user?.organizationId;
-    if (_orgId != null) {
-      context.read<TestProvider>().fetchTestsForOrg(_orgId!);
-      context.read<TestProvider>().fetchCatalog();
-      _queueStream = context.read<BookingProvider>().watchDiagnosticQueue(
-        _orgId!,
-      );
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final auth = context.watch<AuthProvider>();
+    final user = auth.user;
+    final scopeKey = '${user?.uid}|${user?.role}|${user?.organizationId}';
+    if (scopeKey == _scopeKey) return;
+    _scopeKey = scopeKey;
+    _orgId = auth.isTestAdmin ? user?.organizationId : null;
+    _queueStream = _orgId == null
+        ? null
+        : context.read<BookingProvider>().watchDiagnosticQueue(_orgId!);
+    _isScopeLoading = _orgId != null;
+    final organizationId = _orgId;
+    final generation = ++_scopeGeneration;
+    if (organizationId != null) {
+      Future.microtask(() => _loadScope(organizationId, generation));
     }
   }
 
-  bool _isToday(BookingRequestModel booking) {
-    final now = DateTime.now().toUtc().add(const Duration(hours: 6));
-    return booking.queueYear == now.year &&
-        booking.queueMonth == now.month &&
-        booking.queueDay == now.day;
+  Future<void> _loadScope(String organizationId, int generation) async {
+    if (!_isCurrentScope(organizationId, generation)) return;
+    await Future.wait([
+      context.read<TestProvider>().fetchTestsForOrg(organizationId),
+      context.read<TestProvider>().fetchCatalog(),
+    ]);
+    if (!_isCurrentScope(organizationId, generation)) return;
+    setState(() => _isScopeLoading = false);
+  }
+
+  bool _isCurrentScope(String organizationId, int generation) {
+    if (!mounted) return false;
+    final auth = context.read<AuthProvider>();
+    return generation == _scopeGeneration &&
+        _orgId == organizationId &&
+        auth.isTestAdmin &&
+        auth.user?.organizationId == organizationId;
   }
 
   Future<void> _showForm({DiagnosticTestModel? existing}) async {
+    final organizationId = _orgId;
+    final generation = _scopeGeneration;
+    if (organizationId == null) return;
     final provider = context.read<TestProvider>();
     if (provider.catalog.isEmpty) {
       await provider.fetchCatalog();
+      if (!_isCurrentScope(organizationId, generation)) return;
     }
-    if (!mounted) return;
+    if (!_isCurrentScope(organizationId, generation)) return;
     showDialog(
       context: context,
       builder: (_) => _TestFormDialog(
         existing: existing,
         catalog: provider.catalog,
         onSave: (test) async {
-          await context.read<TestProvider>().saveTest(_orgId!, test);
+          if (!_isCurrentScope(organizationId, generation)) return;
+          await context.read<TestProvider>().saveTest(organizationId, test);
+          if (!_isCurrentScope(organizationId, generation)) return;
         },
       ),
     );
@@ -94,7 +122,7 @@ class _ManageTestsScreenState extends State<ManageTestsScreen> {
                 ],
               ),
               const SizedBox(height: 16),
-              if (testProvider.isLoading)
+              if (_isScopeLoading || testProvider.isLoading)
                 const Center(child: CircularProgressIndicator())
               else if (tests.isEmpty)
                 const Center(
@@ -126,13 +154,6 @@ class _ManageTestsScreenState extends State<ManageTestsScreen> {
                             ),
                           ),
                         ...tests.map((test) {
-                          final todayBookings = bookings
-                              .where(
-                                (booking) =>
-                                    booking.testId == test.id &&
-                                    _isToday(booking),
-                              )
-                              .toList();
                           final testBookings = bookings
                               .where((booking) => booking.testId == test.id)
                               .toList();
@@ -140,7 +161,7 @@ class _ManageTestsScreenState extends State<ManageTestsScreen> {
                               .where((booking) => booking.isPending)
                               .length;
                           final remaining =
-                              (test.dailyCapacity - todayBookings.length)
+                              (test.dailyCapacity - testBookings.length)
                                   .clamp(0, test.dailyCapacity)
                                   .toInt();
                           final hasActiveQueue = testBookings.any(
@@ -200,7 +221,7 @@ class _ManageTestsScreenState extends State<ManageTestsScreen> {
                                   ],
                                   const SizedBox(width: 12),
                                   _QueueCountBadge(
-                                    today: todayBookings.length,
+                                    today: testBookings.length,
                                     waiting: waiting,
                                     remaining: remaining,
                                     capacity: test.dailyCapacity,
@@ -228,6 +249,9 @@ class _ManageTestsScreenState extends State<ManageTestsScreen> {
                                     onPressed: hasActiveQueue
                                         ? null
                                         : () async {
+                                            final organizationId = _orgId;
+                                            final generation = _scopeGeneration;
+                                            if (organizationId == null) return;
                                             final provider = context
                                                 .read<TestProvider>();
                                             final confirm =
@@ -262,15 +286,28 @@ class _ManageTestsScreenState extends State<ManageTestsScreen> {
                                                         ],
                                                       ),
                                                 );
-                                            if (!context.mounted) return;
+                                            if (!_isCurrentScope(
+                                              organizationId,
+                                              generation,
+                                            ))
+                                              return;
                                             if (confirm == true) {
                                               try {
                                                 await provider.deleteTest(
-                                                  _orgId!,
+                                                  organizationId,
                                                   test.id,
                                                 );
+                                                if (!_isCurrentScope(
+                                                  organizationId,
+                                                  generation,
+                                                ))
+                                                  return;
                                               } catch (e) {
-                                                if (!context.mounted) return;
+                                                if (!_isCurrentScope(
+                                                  organizationId,
+                                                  generation,
+                                                ))
+                                                  return;
                                                 ScaffoldMessenger.of(
                                                   context,
                                                 ).showSnackBar(

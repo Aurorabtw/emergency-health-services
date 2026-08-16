@@ -10,6 +10,8 @@ class BookingRequestModel {
   final String contactNumber;
   final String status;
   final DateTime? heldUntil;
+  final DateTime? confirmedAt;
+  final int? holdDurationMinutes;
   final double? estimatedPrice;
   final DateTime createdAt;
 
@@ -19,6 +21,8 @@ class BookingRequestModel {
   final String? prescriptionDocumentId;
   // Read-only compatibility for prescriptions uploaded before Firestore migration.
   final String? prescriptionImageUrl;
+  final DateTime? admittedAt;
+  final DateTime? dischargedAt;
 
   // Ambulance-specific
   final double? pickupLat;
@@ -64,12 +68,16 @@ class BookingRequestModel {
     required this.contactNumber,
     this.status = 'pending',
     this.heldUntil,
+    this.confirmedAt,
+    this.holdDurationMinutes,
     this.estimatedPrice,
     required this.createdAt,
     this.bedId,
     this.bedType,
     this.prescriptionDocumentId,
     this.prescriptionImageUrl,
+    this.admittedAt,
+    this.dischargedAt,
     this.pickupLat,
     this.pickupLng,
     this.destinationLat,
@@ -105,7 +113,10 @@ class BookingRequestModel {
   bool get isAdmitted => status == 'admitted';
   bool get isExpired => status == 'expired';
   bool get isRejected => status == 'rejected';
-  bool get isTerminal => isAdmitted || isExpired || isRejected;
+  bool get isDischarged => status == 'discharged';
+  bool get isTerminal => type == 'bed'
+      ? isDischarged || isExpired || isRejected
+      : isAdmitted || isExpired || isRejected;
 
   bool get isHoldExpired {
     if (!isConfirmed || heldUntil == null) return false;
@@ -174,6 +185,7 @@ class BookingRequestModel {
       'admitted',
       'expired',
       'rejected',
+      'discharged',
     }.contains(status)) {
       throw FormatException('Booking ${doc.id} has an invalid status.');
     }
@@ -181,6 +193,14 @@ class BookingRequestModel {
     if (createdAt == null) {
       throw FormatException('Booking ${doc.id} has an invalid created_at.');
     }
+
+    final confirmedAt = optionalDate('confirmed_at');
+    final holdDurationMinutes = optionalInt('hold_duration_minutes');
+    final storedHeldUntil = optionalDate('held_until');
+    final effectiveHeldUntil = storedHeldUntil ??
+        (confirmedAt != null && holdDurationMinutes != null
+            ? confirmedAt.add(Duration(minutes: holdDurationMinutes))
+            : null);
 
     return BookingRequestModel(
       id: doc.id,
@@ -191,13 +211,17 @@ class BookingRequestModel {
       patientName: requiredString('patient_name'),
       contactNumber: requiredString('contact_number'),
       status: status,
-      heldUntil: optionalDate('held_until'),
+      heldUntil: effectiveHeldUntil,
+      confirmedAt: confirmedAt,
+      holdDurationMinutes: holdDurationMinutes,
       estimatedPrice: optionalNumber('estimated_price'),
       createdAt: createdAt,
       bedId: optionalString('bed_id'),
       bedType: optionalString('bed_type'),
       prescriptionDocumentId: optionalString('prescription_document_id'),
       prescriptionImageUrl: optionalString('prescription_image_url'),
+      admittedAt: optionalDate('admitted_at'),
+      dischargedAt: optionalDate('discharged_at'),
       pickupLat: optionalNumber('pickup_lat'),
       pickupLng: optionalNumber('pickup_lng'),
       destinationLat: optionalNumber('destination_lat'),
@@ -252,11 +276,23 @@ class BookingRequestModel {
       'estimated_price': estimatedPrice,
       'created_at': Timestamp.fromDate(createdAt),
     };
+    if (confirmedAt != null) {
+      map['confirmed_at'] = Timestamp.fromDate(confirmedAt!);
+    }
+    if (holdDurationMinutes != null) {
+      map['hold_duration_minutes'] = holdDurationMinutes;
+    }
 
     if (type == 'bed') {
       map['bed_id'] = bedId;
       map['bed_type'] = bedType;
       map['prescription_document_id'] = prescriptionDocumentId;
+      if (admittedAt != null) {
+        map['admitted_at'] = Timestamp.fromDate(admittedAt!);
+      }
+      if (dischargedAt != null) {
+        map['discharged_at'] = Timestamp.fromDate(dischargedAt!);
+      }
     } else if (type == 'ambulance') {
       map['pickup_lat'] = pickupLat;
       map['pickup_lng'] = pickupLng;
@@ -311,12 +347,16 @@ class BookingRequestModel {
     String? contactNumber,
     String? status,
     DateTime? heldUntil,
+    DateTime? confirmedAt,
+    int? holdDurationMinutes,
     double? estimatedPrice,
     DateTime? createdAt,
     String? bedId,
     String? bedType,
     String? prescriptionDocumentId,
     String? prescriptionImageUrl,
+    DateTime? admittedAt,
+    DateTime? dischargedAt,
     double? pickupLat,
     double? pickupLng,
     double? destinationLat,
@@ -356,6 +396,8 @@ class BookingRequestModel {
       contactNumber: contactNumber ?? this.contactNumber,
       status: status ?? this.status,
       heldUntil: heldUntil ?? this.heldUntil,
+      confirmedAt: confirmedAt ?? this.confirmedAt,
+      holdDurationMinutes: holdDurationMinutes ?? this.holdDurationMinutes,
       estimatedPrice: estimatedPrice ?? this.estimatedPrice,
       createdAt: createdAt ?? this.createdAt,
       bedId: bedId ?? this.bedId,
@@ -363,6 +405,8 @@ class BookingRequestModel {
       prescriptionDocumentId:
           prescriptionDocumentId ?? this.prescriptionDocumentId,
       prescriptionImageUrl: prescriptionImageUrl ?? this.prescriptionImageUrl,
+      admittedAt: admittedAt ?? this.admittedAt,
+      dischargedAt: dischargedAt ?? this.dischargedAt,
       pickupLat: pickupLat ?? this.pickupLat,
       pickupLng: pickupLng ?? this.pickupLng,
       destinationLat: destinationLat ?? this.destinationLat,

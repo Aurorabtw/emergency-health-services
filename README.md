@@ -34,7 +34,7 @@ A unified emergency healthcare coordination platform built with **Flutter Web** 
 - Organization management includes category filters and filtered totals.
 - User Management now provides search, role filtering, pagination, responsive layouts, profile status, and an Assigned Hospital / Organization column.
 - Invalid role/organization combinations are flagged and must be corrected in the role editor.
-- Super admins cannot demote or delete their own account.
+- Super admins cannot demote or revoke their own platform access.
 
 ### Ambulance Lifecycle Fixes
 
@@ -48,9 +48,16 @@ A unified emergency healthcare coordination platform built with **Flutter Web** 
 
 - Firestore writes are scoped by service role and assigned organization.
 - Users cannot change their own role or organization assignment.
-- Super admins can remove user profile documents and terminal booking requests can be cleaned by their responsible admins.
-- Removing a profile document does not remove the corresponding Firebase Authentication account; deleting another Auth user requires Firebase Admin SDK or a trusted backend.
-- The updated `firestore.rules` must be deployed before `bed_admin`, `test_admin`, and super-admin profile deletion work against production Firebase.
+- Super admins revoke platform access without deleting user profiles, authentication identities, or booking history. Revoked sessions are signed out and protected reads/writes are denied.
+- Organizations are archived rather than deleted. Archived organizations disappear from listings and lose organization-admin authority while historical data remains intact.
+- Deleting or disabling another Firebase Authentication identity still requires Firebase Admin SDK, the Firebase Console, or another trusted backend.
+- Firestore rules, indexes, and Hosting are verified and deployed together from the production `main` workflow.
+
+### Deployment Migration Notes
+
+- Before enabling revocation in production, compare Firebase Authentication users with `users/{uid}`. Auth accounts whose profiles were deleted by older releases need a revoked profile/`access_revocations/{uid}` record or must be disabled in Firebase Console.
+- Audit existing bed and blood documents for duplicate logical types before relying on canonical IDs for new resources. Existing document IDs remain supported because bookings may reference them; duplicate reconciliation must preserve booking references and live counters.
+- Hold rules temporarily accept both legacy `held_until` bookings and new server-authored `confirmed_at` plus `hold_duration_minutes` bookings. Remove the legacy rule branches only after old browser sessions and active legacy holds have expired.
 
 ## Tech Stack
 

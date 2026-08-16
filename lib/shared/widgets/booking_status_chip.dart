@@ -14,6 +14,8 @@ class BookingStatusChip extends StatelessWidget {
         return Colors.blue;
       case 'admitted':
         return Colors.green;
+      case 'discharged':
+        return Colors.teal;
       case 'expired':
         return Colors.grey;
       case 'rejected':
@@ -31,6 +33,8 @@ class BookingStatusChip extends StatelessWidget {
         return Icons.check_circle_outline;
       case 'admitted':
         return Icons.check_circle;
+      case 'discharged':
+        return Icons.logout;
       case 'expired':
         return Icons.timer_off;
       case 'rejected':
@@ -41,6 +45,16 @@ class BookingStatusChip extends StatelessWidget {
   }
 
   String get _label {
+    if (bookingType == 'bed') {
+      switch (status) {
+        case 'confirmed':
+          return 'Held';
+        case 'admitted':
+          return 'Admitted';
+        case 'discharged':
+          return 'Discharged';
+      }
+    }
     if (bookingType == 'test') {
       switch (status) {
         case 'pending':
@@ -60,6 +74,8 @@ class BookingStatusChip extends StatelessWidget {
         return 'Confirmed';
       case 'admitted':
         return 'Completed';
+      case 'discharged':
+        return 'Discharged';
       case 'expired':
         return 'Expired';
       case 'rejected':

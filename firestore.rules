@@ -10,12 +10,257 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
 
+    function userAccessRevoked(data) {
+      return data.keys().hasAny(['access_revoked'])
+        && data.access_revoked == true;
+    }
+
+    function isActiveUser() {
+      let userPath = /databases/$(database)/documents/users/$(request.auth.uid);
+      return isAuthenticated()
+        && exists(userPath)
+        && !userAccessRevoked(get(userPath).data);
+    }
+
+    function organizationState(data) {
+      return data.keys().hasAny(['lifecycle_state'])
+        ? data.lifecycle_state
+        : (data.keys().hasAny(['archived']) && data.archived == true
+          ? 'archived'
+          : 'active');
+    }
+
+    function organizationDataIsActive(data) {
+      return organizationState(data) == 'active'
+        && (!data.keys().hasAny(['archived']) || data.archived == false);
+    }
+
+    function isOrganizationActive(orgId) {
+      let organizationPath = /databases/$(database)/documents/organizations/$(orgId);
+      return existsAfter(organizationPath)
+        && organizationDataIsActive(getAfter(organizationPath).data);
+    }
+
+    function isOrganizationManageable(orgId) {
+      let organizationPath = /databases/$(database)/documents/organizations/$(orgId);
+      return exists(organizationPath)
+        && organizationState(get(organizationPath).data)
+          in ['active', 'archiving']
+        && (!get(organizationPath).data.keys().hasAny(['archived'])
+          || get(organizationPath).data.archived == false);
+    }
+
+    function archiveLockIsStale(data) {
+      return data.archive_lock_at is timestamp
+        && data.archive_lock_at + duration.value(15, 'm') <= request.time;
+    }
+
+    function isLifecycleNeutralOrganizationUpdate() {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'lifecycle_state',
+        'archived',
+        'archive_lock_at',
+        'archive_lock_by',
+        'archived_at',
+        'archived_by'
+      ]);
+    }
+
+    function isArchiveLockAcquisition() {
+      return organizationState(resource.data) == 'active'
+        && organizationState(request.resource.data) == 'archiving'
+        && request.resource.data.archived == false
+        && request.resource.data.archive_lock_at == request.time
+        && request.resource.data.archive_lock_by == request.auth.uid
+        && request.resource.data.archived_at == null
+        && request.resource.data.archived_by == null
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'lifecycle_state',
+          'archived',
+          'archive_lock_at',
+          'archive_lock_by',
+          'archived_at',
+          'archived_by',
+          'updated_at'
+        ]);
+    }
+
+    function isArchiveLockTakeover() {
+      return organizationState(resource.data) == 'archiving'
+        && organizationState(request.resource.data) == 'archiving'
+        && archiveLockIsStale(resource.data)
+        && request.resource.data.archived == false
+        && request.resource.data.archive_lock_at == request.time
+        && request.resource.data.archive_lock_by == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'archive_lock_at',
+          'archive_lock_by',
+          'archived_at',
+          'archived_by',
+          'updated_at'
+        ]);
+    }
+
+    function isArchiveLockCancellation() {
+      return organizationState(resource.data) == 'archiving'
+        && organizationState(request.resource.data) == 'active'
+        && request.resource.data.archived == false
+        && request.resource.data.archive_lock_at == null
+        && request.resource.data.archive_lock_by == null
+        && request.resource.data.archived_at == null
+        && request.resource.data.archived_by == null
+        && (resource.data.archive_lock_by == request.auth.uid
+          || archiveLockIsStale(resource.data))
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'lifecycle_state',
+          'archived',
+          'archive_lock_at',
+          'archive_lock_by',
+          'archived_at',
+          'archived_by',
+          'updated_at'
+        ]);
+    }
+
+    function isArchiveFinalization() {
+      return organizationState(resource.data) == 'archiving'
+        && resource.data.archive_lock_by == request.auth.uid
+        && organizationState(request.resource.data) == 'archived'
+        && request.resource.data.archived == true
+        && request.resource.data.archive_lock_at == null
+        && request.resource.data.archive_lock_by == null
+        && request.resource.data.archived_at == request.time
+        && request.resource.data.archived_by == request.auth.uid
+        && request.resource.data.verified == false
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'lifecycle_state',
+          'archived',
+          'archive_lock_at',
+          'archive_lock_by',
+          'archived_at',
+          'archived_by',
+          'verified',
+          'updated_at'
+        ]);
+    }
+
+    function isArchiveRestore() {
+      return organizationState(resource.data) == 'archived'
+        && organizationState(request.resource.data) == 'active'
+        && request.resource.data.archived == false
+        && request.resource.data.archive_lock_at == null
+        && request.resource.data.archive_lock_by == null
+        && request.resource.data.archived_at == null
+        && request.resource.data.archived_by == null
+        && request.resource.data.verified == false
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'lifecycle_state',
+          'archived',
+          'archive_lock_at',
+          'archive_lock_by',
+          'archived_at',
+          'archived_by',
+          'verified',
+          'updated_at'
+        ]);
+    }
+
+    function bookingUpdateDoesNotCreateArchiveBlocker(orgId) {
+      let organizationPath = /databases/$(database)/documents/organizations/$(orgId);
+      return organizationState(get(organizationPath).data) != 'archiving'
+        || (!(request.resource.data.status in ['pending', 'confirmed'])
+          && !(request.resource.data.type == 'bed'
+            && request.resource.data.status == 'admitted'));
+    }
+
+    function isValidPersonName(value) {
+      return value is string
+        && value.size() >= 2
+        && value.size() <= 80
+        && value.matches('.*[^ ].*');
+    }
+
+    function isValidPhone(value) {
+      return value is string
+        && value.matches('^[+]?[0-9]{10,15}$');
+    }
+
+    function isCanonicalBedDocument(bedId, type) {
+      return (bedId == 'general' && type == 'General')
+        || (bedId == 'icu' && type == 'ICU')
+        || (bedId == 'nicu' && type == 'NICU');
+    }
+
+    function isCanonicalBloodDocument(stockId, type) {
+      return (stockId == 'a_positive' && type == 'A+')
+        || (stockId == 'a_negative' && type == 'A-')
+        || (stockId == 'b_positive' && type == 'B+')
+        || (stockId == 'b_negative' && type == 'B-')
+        || (stockId == 'ab_positive' && type == 'AB+')
+        || (stockId == 'ab_negative' && type == 'AB-')
+        || (stockId == 'o_positive' && type == 'O+')
+        || (stockId == 'o_negative' && type == 'O-');
+    }
+
+    function isValidBedInventory(data) {
+      return data.type in ['General', 'ICU', 'NICU']
+        && data.total_beds is int
+        && data.total_beds > 0
+        && data.held_beds is int
+        && data.held_beds >= 0
+        && data.admitted_beds is int
+        && data.admitted_beds >= 0
+        && data.held_beds + data.admitted_beds <= data.total_beds
+        && data.price_per_day is number
+        && data.price_per_day >= 0
+        && data.hold_duration_minutes is int
+        && data.hold_duration_minutes > 0
+        && data.hold_duration_minutes <= 1440;
+    }
+
+    function isValidBloodInventory(data) {
+      return data.blood_type in ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']
+        && data.total_units is int
+        && data.total_units >= 0
+        && data.held_units is int
+        && data.held_units >= 0
+        && data.issued_units is int
+        && data.issued_units >= 0
+        && data.held_units + data.issued_units <= data.total_units
+        && data.processing_fee_per_unit is number
+        && data.processing_fee_per_unit >= 0
+        && data.last_updated is timestamp;
+    }
+
+    function hasServerHold(data) {
+      return data.keys().hasAll(['confirmed_at', 'hold_duration_minutes'])
+        && data.confirmed_at is timestamp
+        && data.hold_duration_minutes is int
+        && data.hold_duration_minutes > 0
+        && data.hold_duration_minutes <= 1440;
+    }
+
+    function isHoldActive(data) {
+      return (hasServerHold(data)
+          && data.confirmed_at
+            + duration.value(data.hold_duration_minutes, 'm') > request.time)
+        || (data.held_until is timestamp && data.held_until > request.time);
+    }
+
+    function isHoldExpired(data) {
+      return (hasServerHold(data)
+          && data.confirmed_at
+            + duration.value(data.hold_duration_minutes, 'm') <= request.time)
+        || (data.held_until is timestamp && data.held_until <= request.time);
+    }
+
     function isSuperAdmin() {
-      return isAuthenticated() && getUserData().role == 'super_admin';
+      return isActiveUser() && getUserData().role == 'super_admin';
     }
 
     function isAssignedAdmin(orgId, roles) {
-      return isAuthenticated()
+      return isActiveUser()
+        && isOrganizationManageable(orgId)
         && getUserData().organization_id == orgId
         && getUserData().role in roles;
     }
@@ -44,14 +289,10 @@ service cloud.firestore {
     }
 
     function isProfileComplete() {
-      return isAuthenticated()
+      return isActiveUser()
         && getUserData().profile_complete == true
-        && getUserData().name is string
-        && getUserData().name.size() >= 2
-        && getUserData().name.size() <= 80
-        && getUserData().phone is string
-        && getUserData().phone.size() >= 10
-        && getUserData().phone.size() <= 20;
+        && isValidPersonName(getUserData().name)
+        && isValidPhone(getUserData().phone);
     }
 
     function isValidBookingBase(expectedOrganizationType) {
@@ -75,18 +316,15 @@ service cloud.firestore {
         && data.organization_name.size() >= 2
         && data.organization_name.size() <= 120
         && data.user_id == request.auth.uid
-        && data.patient_name is string
-        && data.patient_name.size() >= 2
-        && data.patient_name.size() <= 80
-        && data.contact_number is string
-        && data.contact_number.size() >= 10
-        && data.contact_number.size() <= 20
+        && isValidPersonName(data.patient_name)
+        && isValidPhone(data.contact_number)
         && data.status == 'pending'
         && data.held_until == null
         && data.estimated_price is number
         && data.estimated_price >= 0
         && data.created_at == request.time
         && exists(organizationPath)
+        && isOrganizationActive(data.organization_id)
         && get(organizationPath).data.verified == true
         && get(organizationPath).data.type == expectedOrganizationType
         && get(organizationPath).data.name == data.organization_name;
@@ -217,6 +455,7 @@ service cloud.firestore {
           - get(stockPath).data.issued_units
         && exists(hospitalPath)
         && get(hospitalPath).data.type == 'hospital'
+        && isOrganizationActive(data.hospital_id)
         && get(hospitalPath).data.verified == true
         && get(hospitalPath).data.name == data.hospital_name;
     }
@@ -230,6 +469,7 @@ service cloud.firestore {
           && data.destination_hospital_id.size() > 0
           && data.destination_address is string
           && exists(/databases/$(database)/documents/organizations/$(data.destination_hospital_id))
+          && isOrganizationActive(data.destination_hospital_id)
           && get(/databases/$(database)/documents/organizations/$(data.destination_hospital_id)).data.type == 'hospital'
           && get(/databases/$(database)/documents/organizations/$(data.destination_hospital_id)).data.verified == true
           && get(/databases/$(database)/documents/organizations/$(data.destination_hospital_id)).data.name == data.destination_address
@@ -317,9 +557,11 @@ service cloud.firestore {
     }
 
     function prescriptionBookingIsTerminal(documentId) {
-      return get(
+      let booking = get(
         /databases/$(database)/documents/booking_requests/$(documentId)
-      ).data.status in ['rejected', 'expired', 'admitted'];
+      ).data;
+      return booking.status in ['rejected', 'expired', 'discharged']
+        || (booking.type != 'bed' && booking.status == 'admitted');
     }
 
     function prescriptionIsDeletedWithBooking() {
@@ -335,6 +577,29 @@ service cloud.firestore {
       return data.queue_year == dhakaTime.year()
         && data.queue_month == dhakaTime.month()
         && data.queue_day == dhakaTime.day();
+    }
+
+    function isPastQueueDay(data) {
+      let dhakaTime = request.time + duration.value(6, 'h');
+      return data.queue_year < dhakaTime.year()
+        || (data.queue_year == dhakaTime.year()
+          && data.queue_month < dhakaTime.month())
+        || (data.queue_year == dhakaTime.year()
+          && data.queue_month == dhakaTime.month()
+          && data.queue_day < dhakaTime.day());
+    }
+
+    function diagnosticQueueDayId(data) {
+      return string(data.queue_year) + '_'
+        + string(data.queue_month) + '_'
+        + string(data.queue_day) + '_'
+        + data.test_id;
+    }
+
+    function currentDailyCapacityExists(orgId, data) {
+      return exists(
+        /databases/$(database)/documents/organizations/$(orgId)/test_daily_capacity/$(diagnosticQueueDayId(data))
+      );
     }
 
     function queueSlotMinutes(orgId, testId) {
@@ -364,20 +629,25 @@ service cloud.firestore {
     function isValidTestBookingCreate(requestId) {
       let counter = getAfter(/databases/$(database)/documents/organizations/$(request.resource.data.organization_id)/test_queue_counters/$(request.resource.data.queue_counter_id)).data;
       let test = get(/databases/$(database)/documents/organizations/$(request.resource.data.organization_id)/tests/$(request.resource.data.test_id)).data;
+      let organization = get(/databases/$(database)/documents/organizations/$(request.resource.data.organization_id)).data;
       let dailyId = string(request.resource.data.queue_year) + '_'
         + string(request.resource.data.queue_month) + '_'
         + string(request.resource.data.queue_day) + '_'
         + request.resource.data.test_id;
       let daily = getAfter(/databases/$(database)/documents/organizations/$(request.resource.data.organization_id)/test_daily_capacity/$(dailyId)).data;
+      let claimId = request.resource.data.organization_id + '_' + dailyId;
+      let claim = getAfter(/databases/$(database)/documents/users/$(request.auth.uid)/diagnostic_serial_claims/$(claimId)).data;
       return request.resource.data.test_id is string
         && request.resource.data.test_name is string
         && request.resource.data.test_name == test.test_name
         && request.resource.data.estimated_price == test.price
         && request.resource.data.organization_id is string
-        && request.resource.data.organization_name is string
-        && request.resource.data.patient_name is string
-        && request.resource.data.contact_number is string
-        && request.resource.data.created_at is timestamp
+        && request.resource.data.organization_name == organization.name
+        && organization.verified == true
+        && isOrganizationActive(request.resource.data.organization_id)
+        && isValidPersonName(request.resource.data.patient_name)
+        && isValidPhone(request.resource.data.contact_number)
+        && request.resource.data.created_at == request.time
         && request.resource.data.called_at == null
         && request.resource.data.completed_at == null
         && request.resource.data.serial_number is int
@@ -405,12 +675,31 @@ service cloud.firestore {
         && daily.used > 0
         && daily.remaining == daily.capacity - daily.used
         && daily.remaining >= 0
-        && daily.last_request_id == requestId;
+        && daily.last_request_id == requestId
+        && claim.keys().hasOnly([
+          'organization_id',
+          'test_id',
+          'user_id',
+          'booking_id',
+          'queue_year',
+          'queue_month',
+          'queue_day',
+          'created_at'
+        ])
+        && claim.organization_id == request.resource.data.organization_id
+        && claim.test_id == request.resource.data.test_id
+        && claim.user_id == request.auth.uid
+        && claim.booking_id == requestId
+        && claim.queue_year == request.resource.data.queue_year
+        && claim.queue_month == request.resource.data.queue_month
+        && claim.queue_day == request.resource.data.queue_day
+        && claim.created_at == request.time;
     }
 
     function isValidTestBookingUpdate(requestId) {
       let counter = getAfter(/databases/$(database)/documents/organizations/$(resource.data.organization_id)/test_queue_counters/$(resource.data.queue_counter_id)).data;
-      return resource.data.type == 'test' && (
+      return resource.data.type == 'test'
+        && isCurrentQueueDay(resource.data) && (
         request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['status', 'called_at', 'completed_at'])
         && (
@@ -440,6 +729,15 @@ service cloud.firestore {
       );
     }
 
+    function isValidTestExpiry() {
+      return resource.data.type == 'test'
+        && resource.data.status in ['pending', 'confirmed']
+        && isPastQueueDay(resource.data)
+        && request.resource.data.status == 'expired'
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status']);
+    }
+
     function isValidBedConfirmation() {
       let bedPath = /databases/$(database)/documents/organizations/$(resource.data.organization_id)/beds/$(request.resource.data.bed_id);
       let before = get(bedPath).data;
@@ -448,18 +746,25 @@ service cloud.firestore {
         && resource.data.status == 'pending'
         && request.resource.data.status == 'confirmed'
         && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['status', 'held_until', 'bed_id'])
+          .hasOnly(['status', 'held_until', 'confirmed_at', 'hold_duration_minutes', 'bed_id'])
         && request.resource.data.bed_id is string
         && (!resource.data.keys().hasAny(['bed_id'])
           || resource.data.bed_id == null
           || resource.data.bed_id == request.resource.data.bed_id)
-        && request.resource.data.held_until is timestamp
-        && request.resource.data.held_until > request.time
         && before.hold_duration_minutes is int
         && before.hold_duration_minutes > 0
         && before.hold_duration_minutes <= 1440
-        && request.resource.data.held_until
-          <= request.time + duration.value(before.hold_duration_minutes, 'm')
+        && (
+          (request.resource.data.held_until == null
+            && request.resource.data.confirmed_at == request.time
+            && request.resource.data.hold_duration_minutes
+              == before.hold_duration_minutes)
+          || (request.resource.data.held_until is timestamp
+            && !request.resource.data.keys().hasAny(['confirmed_at', 'hold_duration_minutes'])
+            && request.resource.data.held_until > request.time
+            && request.resource.data.held_until
+              <= request.time + duration.value(before.hold_duration_minutes, 'm'))
+        )
         && before.type == resource.data.bed_type
         && before.held_beds is int
         && before.total_beds is int
@@ -477,17 +782,23 @@ service cloud.firestore {
         && resource.data.status == 'pending'
         && request.resource.data.status == 'confirmed'
         && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['status', 'held_until', 'blood_stock_id'])
+          .hasOnly(['status', 'held_until', 'confirmed_at', 'hold_duration_minutes', 'blood_stock_id'])
         && request.resource.data.blood_stock_id is string
         && (!resource.data.keys().hasAny(['blood_stock_id'])
           || resource.data.blood_stock_id == null
           || resource.data.blood_stock_id == request.resource.data.blood_stock_id)
         && resource.data.units_needed is int
         && resource.data.units_needed > 0
-        && request.resource.data.held_until is timestamp
-        && request.resource.data.held_until > request.time
-        && request.resource.data.held_until
-          <= request.time + duration.value(60, 'm')
+        && (
+          (request.resource.data.held_until == null
+            && request.resource.data.confirmed_at == request.time
+            && request.resource.data.hold_duration_minutes == 60)
+          || (request.resource.data.held_until is timestamp
+            && !request.resource.data.keys().hasAny(['confirmed_at', 'hold_duration_minutes'])
+            && request.resource.data.held_until > request.time
+            && request.resource.data.held_until
+              <= request.time + duration.value(60, 'm'))
+        )
         && before.blood_type == resource.data.blood_type
         && before.held_units is int
         && before.total_units is int
@@ -505,12 +816,18 @@ service cloud.firestore {
         && resource.data.status == 'pending'
         && request.resource.data.status == 'confirmed'
         && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['status', 'held_until', 'ambulance_id'])
+          .hasOnly(['status', 'held_until', 'confirmed_at', 'hold_duration_minutes', 'ambulance_id'])
         && request.resource.data.ambulance_id is string
-        && request.resource.data.held_until is timestamp
-        && request.resource.data.held_until > request.time
-        && request.resource.data.held_until
-          <= request.time + duration.value(30, 'm')
+        && (
+          (request.resource.data.held_until == null
+            && request.resource.data.confirmed_at == request.time
+            && request.resource.data.hold_duration_minutes == 30)
+          || (request.resource.data.held_until is timestamp
+            && !request.resource.data.keys().hasAny(['confirmed_at', 'hold_duration_minutes'])
+            && request.resource.data.held_until > request.time
+            && request.resource.data.held_until
+              <= request.time + duration.value(30, 'm'))
+        )
         && before.type == resource.data.ambulance_type
         && before.base_fare == resource.data.estimated_price
         && before.status == 'available'
@@ -524,12 +841,13 @@ service cloud.firestore {
       let after = getAfter(bedPath).data;
       return resource.data.type == 'bed'
         && resource.data.status == 'confirmed'
-        && resource.data.held_until is timestamp
-        && resource.data.held_until > request.time
+        && isHoldActive(resource.data)
         && request.resource.data.status == 'admitted'
         && request.resource.data.held_until == null
+        && (!request.resource.data.keys().hasAny(['admitted_at'])
+          || request.resource.data.admitted_at == request.time)
         && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['status', 'held_until', 'bed_id'])
+          .hasOnly(['status', 'held_until', 'bed_id', 'admitted_at'])
         && request.resource.data.bed_id is string
         && (!resource.data.keys().hasAny(['bed_id'])
           || resource.data.bed_id == null
@@ -544,14 +862,30 @@ service cloud.firestore {
         && after.admitted_beds == before.admitted_beds + 1;
     }
 
+    function isValidBedDischarge() {
+      let bedPath = /databases/$(database)/documents/organizations/$(resource.data.organization_id)/beds/$(resource.data.bed_id);
+      let before = get(bedPath).data;
+      let after = getAfter(bedPath).data;
+      return resource.data.type == 'bed'
+        && resource.data.status == 'admitted'
+        && resource.data.bed_id is string
+        && request.resource.data.status == 'discharged'
+        && request.resource.data.discharged_at == request.time
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'discharged_at'])
+        && before.admitted_beds is int
+        && before.admitted_beds > 0
+        && after.diff(before).affectedKeys().hasOnly(['admitted_beds'])
+        && after.admitted_beds == before.admitted_beds - 1;
+    }
+
     function isValidBloodAdmission() {
       let stockPath = /databases/$(database)/documents/organizations/$(resource.data.organization_id)/blood_stock/$(request.resource.data.blood_stock_id);
       let before = get(stockPath).data;
       let after = getAfter(stockPath).data;
       return resource.data.type == 'blood'
         && resource.data.status == 'confirmed'
-        && resource.data.held_until is timestamp
-        && resource.data.held_until > request.time
+        && isHoldActive(resource.data)
         && request.resource.data.status == 'admitted'
         && request.resource.data.held_until == null
         && request.resource.data.diff(resource.data).affectedKeys()
@@ -578,8 +912,7 @@ service cloud.firestore {
       let after = getAfter(ambulancePath).data;
       return resource.data.type == 'ambulance'
         && resource.data.status == 'confirmed'
-        && resource.data.held_until is timestamp
-        && resource.data.held_until > request.time
+        && isHoldActive(resource.data)
         && request.resource.data.status == 'admitted'
         && request.resource.data.held_until == null
         && request.resource.data.diff(resource.data).affectedKeys()
@@ -605,8 +938,7 @@ service cloud.firestore {
       let after = getAfter(bedPath).data;
       return resource.data.type == 'bed'
         && resource.data.status == 'confirmed'
-        && resource.data.held_until is timestamp
-        && resource.data.held_until <= request.time
+        && isHoldExpired(resource.data)
         && request.resource.data.status == 'expired'
         && request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['status'])
@@ -627,8 +959,7 @@ service cloud.firestore {
       let after = getAfter(stockPath).data;
       return resource.data.type == 'blood'
         && resource.data.status == 'confirmed'
-        && resource.data.held_until is timestamp
-        && resource.data.held_until <= request.time
+        && isHoldExpired(resource.data)
         && request.resource.data.status == 'expired'
         && request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['status'])
@@ -652,8 +983,7 @@ service cloud.firestore {
       let after = getAfter(ambulancePath).data;
       return resource.data.type == 'ambulance'
         && resource.data.status == 'confirmed'
-        && resource.data.held_until is timestamp
-        && resource.data.held_until <= request.time
+        && isHoldExpired(resource.data)
         && resource.data.ambulance_id is string
         && request.resource.data.status == 'expired'
         && request.resource.data.diff(resource.data).affectedKeys()
@@ -677,8 +1007,9 @@ service cloud.firestore {
       return (resource.data.type == 'bed'
           && (isValidPendingRejection()
             || isValidBedExpiry(requestId)
-            || isValidBedConfirmation()
-            || isValidBedAdmission()))
+             || isValidBedConfirmation()
+             || isValidBedAdmission()
+             || isValidBedDischarge()))
         || (resource.data.type == 'blood'
           && (isValidPendingRejection()
             || isValidBloodExpiry(requestId)
@@ -699,6 +1030,9 @@ service cloud.firestore {
         && booking.test_id == request.resource.data.test_id
         && booking.queue_counter_id == counterId
         && counterId == request.resource.data.test_id
+        && booking.queue_year == request.resource.data.queue_year
+        && booking.queue_month == request.resource.data.queue_month
+        && booking.queue_day == request.resource.data.queue_day
         && booking.serial_number == request.resource.data.last_serial
         && booking.estimated_arrival_time == request.resource.data.last_estimated_arrival
         && booking.status == 'pending';
@@ -727,6 +1061,7 @@ service cloud.firestore {
         && action.type == 'test'
         && action.organization_id == orgId
         && action.queue_counter_id == counterId
+        && isCurrentQueueDay(action)
         && action.serial_number == request.resource.data.last_called_serial
         && (
           (resource.data.active_request_id == null
@@ -753,8 +1088,7 @@ service cloud.firestore {
         && beforeBooking.status == 'confirmed'
         && beforeBooking.user_id == request.auth.uid
         && beforeBooking.organization_id == orgId
-        && beforeBooking.held_until is timestamp
-        && beforeBooking.held_until <= request.time
+        && isHoldExpired(beforeBooking)
         && afterBooking.status == 'expired'
         && beforeBooking.bed_id is string
         && beforeBooking.bed_id == bedId
@@ -778,8 +1112,7 @@ service cloud.firestore {
         && beforeBooking.status == 'confirmed'
         && beforeBooking.user_id == request.auth.uid
         && beforeBooking.organization_id == orgId
-        && beforeBooking.held_until is timestamp
-        && beforeBooking.held_until <= request.time
+        && isHoldExpired(beforeBooking)
         && beforeBooking.units_needed is int
         && beforeBooking.units_needed > 0
         && afterBooking.status == 'expired'
@@ -807,8 +1140,7 @@ service cloud.firestore {
         && beforeBooking.user_id == request.auth.uid
         && beforeBooking.organization_id == orgId
         && beforeBooking.ambulance_id == vehicleId
-        && beforeBooking.held_until is timestamp
-        && beforeBooking.held_until <= request.time
+        && isHoldExpired(beforeBooking)
         && afterBooking.status == 'expired'
         && afterBooking.diff(beforeBooking).affectedKeys().hasOnly(['status'])
         && resource.data.type == beforeBooking.ambulance_type
@@ -818,20 +1150,55 @@ service cloud.firestore {
         && request.resource.data.status == 'available';
     }
 
-    // Organizations - public read, super admin write
+    match /server_clock_probes/{ownerId} {
+      allow read: if isAuthenticated() && request.auth.uid == ownerId;
+      allow create, update: if isAuthenticated()
+        && request.auth.uid == ownerId
+        && request.resource.data.keys().hasOnly(['owner_id', 'server_time'])
+        && request.resource.data.owner_id == ownerId
+        && request.resource.data.server_time == request.time;
+      allow delete: if false;
+    }
+
+    // Organizations - public read, super admin lifecycle management
     match /organizations/{orgId} {
       allow read: if true;
-      allow create, update, delete: if isSuperAdmin();
+      allow create: if isSuperAdmin()
+        && organizationDataIsActive(request.resource.data)
+        && (!request.resource.data.keys().hasAny(['archive_lock_at'])
+          || request.resource.data.archive_lock_at == null)
+        && (!request.resource.data.keys().hasAny(['archive_lock_by'])
+          || request.resource.data.archive_lock_by == null)
+        && (!request.resource.data.keys().hasAny(['archived_at'])
+          || request.resource.data.archived_at == null)
+        && (!request.resource.data.keys().hasAny(['archived_by'])
+          || request.resource.data.archived_by == null);
+      allow update: if isSuperAdmin() && (
+        isLifecycleNeutralOrganizationUpdate()
+        || isArchiveLockAcquisition()
+        || isArchiveLockTakeover()
+        || isArchiveLockCancellation()
+        || isArchiveFinalization()
+        || isArchiveRestore()
+      );
+      allow delete: if false;
 
       // Beds subcollection
       match /beds/{bedId} {
         allow read: if true;
-        allow create, delete: if isBedAdmin(orgId) || isSuperAdmin();
-        allow update: if isBedAdmin(orgId)
-          || isSuperAdmin()
-          || (isAuthenticated()
+        allow create: if (isBedAdmin(orgId) || isSuperAdmin())
+          && isCanonicalBedDocument(bedId, request.resource.data.type)
+          && isValidBedInventory(request.resource.data);
+        allow update: if ((isBedAdmin(orgId) || isSuperAdmin())
+            && request.resource.data.type == resource.data.type
+            && isValidBedInventory(request.resource.data))
+          || (isActiveUser()
             && request.resource.data.last_expired_booking_id is string
-            && isValidBedExpiryRelease(orgId, bedId));
+            && isValidBedExpiryRelease(orgId, bedId)
+            && isValidBedInventory(request.resource.data));
+        allow delete: if (isBedAdmin(orgId) || isSuperAdmin())
+          && resource.data.held_beds == 0
+          && resource.data.admitted_beds == 0;
       }
 
       // Ambulances subcollection
@@ -840,7 +1207,7 @@ service cloud.firestore {
         allow create, delete: if isAmbulanceAdmin(orgId) || isSuperAdmin();
         allow update: if isAmbulanceAdmin(orgId)
           || isSuperAdmin()
-          || (isAuthenticated()
+          || (isActiveUser()
             && request.resource.data.last_expired_booking_id is string
             && isValidAmbulanceExpiryRelease(orgId, vehicleId));
       }
@@ -848,12 +1215,19 @@ service cloud.firestore {
       // Blood stock subcollection
       match /blood_stock/{stockId} {
         allow read: if true;
-        allow create, delete: if isBloodBankAdmin(orgId) || isSuperAdmin();
-        allow update: if isBloodBankAdmin(orgId)
-          || isSuperAdmin()
-          || (isAuthenticated()
+        allow create: if (isBloodBankAdmin(orgId) || isSuperAdmin())
+          && isCanonicalBloodDocument(stockId, request.resource.data.blood_type)
+          && isValidBloodInventory(request.resource.data);
+        allow update: if ((isBloodBankAdmin(orgId) || isSuperAdmin())
+            && request.resource.data.blood_type == resource.data.blood_type
+            && isValidBloodInventory(request.resource.data))
+          || (isActiveUser()
             && request.resource.data.last_expired_booking_id is string
-            && isValidBloodExpiryRelease(orgId, stockId));
+            && isValidBloodExpiryRelease(orgId, stockId)
+            && isValidBloodInventory(request.resource.data));
+        allow delete: if (isBloodBankAdmin(orgId) || isSuperAdmin())
+          && resource.data.held_units == 0
+          && resource.data.issued_units == 0;
       }
 
       // Tests subcollection
@@ -865,10 +1239,14 @@ service cloud.firestore {
       }
 
       match /test_queue_counters/{counterId} {
-        allow get: if isAuthenticated();
+        allow get: if isActiveUser();
         allow list: if isTestAdmin(orgId) || isSuperAdmin();
         allow create: if isProfileComplete()
           && request.resource.data.test_id is string
+          && request.resource.data.queue_year is int
+          && request.resource.data.queue_month is int
+          && request.resource.data.queue_day is int
+          && isCurrentQueueDay(request.resource.data)
           && counterId == request.resource.data.test_id
           && request.resource.data.last_serial == 1
           && request.resource.data.last_called_serial == 0
@@ -885,23 +1263,47 @@ service cloud.firestore {
           && queueCounterMatchesBooking(orgId, counterId);
         allow update: if isProfileComplete()
           && request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(['last_serial', 'last_estimated_arrival', 'last_request_id', 'updated_at'])
+            .hasOnly([
+              'queue_year',
+              'queue_month',
+              'queue_day',
+              'last_serial',
+              'last_called_serial',
+              'active_request_id',
+              'last_queue_action_id',
+              'last_estimated_arrival',
+              'last_request_id',
+              'updated_at'
+            ])
           && request.resource.data.test_id == resource.data.test_id
+          && request.resource.data.queue_year is int
+          && request.resource.data.queue_month is int
+          && request.resource.data.queue_day is int
+          && isCurrentQueueDay(request.resource.data)
           && counterId == request.resource.data.test_id
-          && request.resource.data.last_serial == resource.data.last_serial + 1
-          && request.resource.data.last_called_serial == resource.data.last_called_serial
-          && request.resource.data.active_request_id == resource.data.active_request_id
-          && request.resource.data.last_queue_action_id == resource.data.last_queue_action_id
           && request.resource.data.last_estimated_arrival is timestamp
-          && request.resource.data.last_estimated_arrival > resource.data.last_estimated_arrival
           && request.resource.data.last_estimated_arrival > request.time
           && queueSlotMinutes(orgId, request.resource.data.test_id) is int
           && queueSlotMinutes(orgId, request.resource.data.test_id) > 0
           && queueSlotMinutes(orgId, request.resource.data.test_id) <= 240
           && (
-            (resource.data.last_estimated_arrival > request.time
-              && request.resource.data.last_estimated_arrival == resource.data.last_estimated_arrival + duration.value(queueSlotMinutes(orgId, request.resource.data.test_id), 'm'))
-            || (resource.data.last_estimated_arrival <= request.time
+            (currentDailyCapacityExists(orgId, request.resource.data)
+              && request.resource.data.last_serial == resource.data.last_serial + 1
+              && request.resource.data.last_called_serial == resource.data.last_called_serial
+              && request.resource.data.active_request_id == resource.data.active_request_id
+              && request.resource.data.last_queue_action_id == resource.data.last_queue_action_id
+              && request.resource.data.last_estimated_arrival > resource.data.last_estimated_arrival
+              && (
+                (resource.data.last_estimated_arrival > request.time
+                  && request.resource.data.last_estimated_arrival == resource.data.last_estimated_arrival + duration.value(queueSlotMinutes(orgId, request.resource.data.test_id), 'm'))
+                || (resource.data.last_estimated_arrival <= request.time
+                  && request.resource.data.last_estimated_arrival <= request.time + duration.value(queueSlotMinutes(orgId, request.resource.data.test_id) + 5, 'm'))
+              ))
+            || (!currentDailyCapacityExists(orgId, request.resource.data)
+              && request.resource.data.last_serial == 1
+              && request.resource.data.last_called_serial == 0
+              && request.resource.data.active_request_id == null
+              && request.resource.data.last_queue_action_id == null
               && request.resource.data.last_estimated_arrival <= request.time + duration.value(queueSlotMinutes(orgId, request.resource.data.test_id) + 5, 'm'))
           )
           && request.resource.data.last_request_id is string
@@ -970,7 +1372,7 @@ service cloud.firestore {
         && isProfileComplete()
         && isValidPrescriptionCreate(documentId);
 
-      allow read: if isAuthenticated() && (
+      allow read: if isActiveUser() && (
         resource.data.user_id == request.auth.uid
         || canManageBooking(
           resource.data.organization_id,
@@ -979,7 +1381,7 @@ service cloud.firestore {
         || isSuperAdmin()
       );
 
-      allow delete: if isAuthenticated()
+      allow delete: if isActiveUser()
         && prescriptionBookingIsTerminal(documentId)
         && (resource.data.user_id == request.auth.uid
           || canManageBooking(
@@ -1005,27 +1407,35 @@ service cloud.firestore {
           || (request.resource.data.type == 'test' && isValidTestBookingCreate(requestId))
         );
 
-      allow read: if isAuthenticated() && (
+      allow read: if isActiveUser() && (
         resource.data.user_id == request.auth.uid
         || canManageBooking(resource.data.organization_id, resource.data.type)
         || isSuperAdmin()
       );
 
-      allow update: if isAuthenticated() && (
+      allow update: if isActiveUser()
+        && bookingUpdateDoesNotCreateArchiveBlocker(resource.data.organization_id)
+        && (
         ((canManageBooking(resource.data.organization_id, resource.data.type)
             || isSuperAdmin())
           && ((resource.data.type == 'test'
-              && isValidTestBookingUpdate(requestId))
+              && (isValidTestBookingUpdate(requestId)
+                || isValidTestExpiry()))
             || (resource.data.type != 'test'
               && isValidNonTestAdminUpdate(requestId))))
         // Owners may only expire their own overdue non-test booking.
         || (resource.data.type != 'test'
             && resource.data.user_id == request.auth.uid
             && isValidNonTestExpiry(requestId))
-      );
+        || (resource.data.type == 'test'
+            && resource.data.user_id == request.auth.uid
+            && isValidTestExpiry())
+        );
 
       allow delete: if resource.data.status
-          in ['rejected', 'expired', 'admitted']
+          in ['rejected', 'expired', 'admitted', 'discharged']
+        && (resource.data.type != 'bed'
+          || resource.data.status != 'admitted')
         && prescriptionIsDeletedWithBooking()
         && (isSuperAdmin()
           || canManageBooking(
@@ -1050,27 +1460,155 @@ service cloud.firestore {
       // Privileged roles are provisioned only from a trusted admin environment.
       allow create: if isAuthenticated()
         && request.auth.uid == userId
+        && !exists(/databases/$(database)/documents/access_revocations/$(userId))
+        && request.resource.data.keys().hasAll([
+          'email',
+          'name',
+          'phone',
+          'profile_complete',
+          'role',
+          'organization_id'
+        ])
+        && request.resource.data.keys().hasOnly([
+          'email',
+          'name',
+          'phone',
+          'profile_complete',
+          'role',
+          'organization_id',
+          'access_revoked',
+          'access_revoked_at',
+          'access_revoked_by'
+        ])
+        && request.auth.token.email is string
+        && request.resource.data.email == request.auth.token.email
         && request.resource.data.organization_id == null
-        && request.resource.data.role == 'patient';
+        && request.resource.data.role == 'patient'
+        && (!request.resource.data.keys().hasAny(['access_revoked'])
+          || request.resource.data.access_revoked == false)
+        && (!request.resource.data.keys().hasAny(['access_revoked_at'])
+          || request.resource.data.access_revoked_at == null)
+        && (!request.resource.data.keys().hasAny(['access_revoked_by'])
+          || request.resource.data.access_revoked_by == null)
+        && request.resource.data.profile_complete == false
+        && (request.resource.data.name == null
+          || isValidPersonName(request.resource.data.name))
+        && request.resource.data.phone == null;
 
-      allow update: if isSuperAdmin()
-        || (isAuthenticated()
+      allow update: if (isSuperAdmin()
+          && request.auth.uid != userId
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'role',
+            'organization_id',
+            'access_revoked',
+            'access_revoked_at',
+            'access_revoked_by'
+          ])
+          && request.resource.data.email == resource.data.email
+          && (
+            (userAccessRevoked(request.resource.data)
+              && request.resource.data.role == 'patient'
+              && request.resource.data.organization_id == null
+              && request.resource.data.access_revoked_at == request.time
+              && request.resource.data.access_revoked_by == request.auth.uid)
+            || (!userAccessRevoked(request.resource.data)
+              && (!request.resource.data.keys().hasAny(['access_revoked_at'])
+                || request.resource.data.access_revoked_at == null)
+              && (!request.resource.data.keys().hasAny(['access_revoked_by'])
+                || request.resource.data.access_revoked_by == null)
+              && (
+                (request.resource.data.role in ['patient', 'super_admin']
+                  && request.resource.data.organization_id == null)
+                || (request.resource.data.role in ['bed_admin', 'test_admin', 'hospital_admin']
+                  && request.resource.data.organization_id is string
+                  && isOrganizationActive(request.resource.data.organization_id)
+                  && get(/databases/$(database)/documents/organizations/$(request.resource.data.organization_id)).data.type == 'hospital')
+                || (request.resource.data.role == 'blood_bank_admin'
+                  && request.resource.data.organization_id is string
+                  && isOrganizationActive(request.resource.data.organization_id)
+                  && get(/databases/$(database)/documents/organizations/$(request.resource.data.organization_id)).data.type == 'blood_bank')
+                || (request.resource.data.role == 'ambulance_admin'
+                  && request.resource.data.organization_id is string
+                  && isOrganizationActive(request.resource.data.organization_id)
+                  && get(/databases/$(database)/documents/organizations/$(request.resource.data.organization_id)).data.type == 'ambulance_operator')
+              ))
+          ))
+        || (isActiveUser()
           && request.auth.uid == userId
           && request.resource.data.diff(resource.data).affectedKeys()
             .hasOnly(['name', 'phone', 'profile_complete'])
           && request.resource.data.role == resource.data.role
           && request.resource.data.organization_id == resource.data.organization_id
           && request.resource.data.email == resource.data.email
-          && request.resource.data.name is string
-          && request.resource.data.name.size() >= 2
-          && request.resource.data.name.size() <= 80
-          && request.resource.data.phone is string
-          && request.resource.data.phone.size() >= 10
-          && request.resource.data.phone.size() <= 20
-          && request.resource.data.profile_complete == true);
+          && (
+            (request.resource.data.profile_complete == true
+              && isValidPersonName(request.resource.data.name)
+              && isValidPhone(request.resource.data.phone))
+            || (resource.data.profile_complete == false
+              && request.resource.data.profile_complete == false
+              && (request.resource.data.name == null
+                || isValidPersonName(request.resource.data.name))
+              && request.resource.data.phone == null)
+          ));
 
-      allow delete: if isSuperAdmin();
+      allow delete: if false;
 
+      match /diagnostic_serial_claims/{claimId} {
+        allow get: if isActiveUser()
+          && (request.auth.uid == userId || isSuperAdmin());
+        allow list: if isActiveUser()
+          && (request.auth.uid == userId || isSuperAdmin());
+        allow create: if isProfileComplete()
+          && request.auth.uid == userId
+          && request.resource.data.keys().hasOnly([
+            'organization_id',
+            'test_id',
+            'user_id',
+            'booking_id',
+            'queue_year',
+            'queue_month',
+            'queue_day',
+            'created_at'
+          ])
+          && request.resource.data.organization_id is string
+          && request.resource.data.test_id is string
+          && request.resource.data.user_id == userId
+          && request.resource.data.booking_id is string
+          && request.resource.data.queue_year is int
+          && request.resource.data.queue_month is int
+          && request.resource.data.queue_day is int
+          && request.resource.data.created_at == request.time
+          && isCurrentQueueDay(request.resource.data)
+          && claimId == request.resource.data.organization_id + '_'
+            + diagnosticQueueDayId(request.resource.data)
+          && getAfter(/databases/$(database)/documents/booking_requests/$(request.resource.data.booking_id)).data.user_id == userId
+          && getAfter(/databases/$(database)/documents/booking_requests/$(request.resource.data.booking_id)).data.organization_id == request.resource.data.organization_id
+          && getAfter(/databases/$(database)/documents/booking_requests/$(request.resource.data.booking_id)).data.test_id == request.resource.data.test_id
+          && getAfter(/databases/$(database)/documents/booking_requests/$(request.resource.data.booking_id)).data.queue_counter_id == request.resource.data.test_id
+          && getAfter(/databases/$(database)/documents/booking_requests/$(request.resource.data.booking_id)).data.status == 'pending';
+        allow update: if false;
+        allow delete: if isSuperAdmin();
+      }
+
+    }
+
+    match /access_revocations/{userId} {
+      allow read: if isAuthenticated()
+        && (request.auth.uid == userId || isSuperAdmin());
+      allow create: if isSuperAdmin()
+        && request.auth.uid != userId
+        && request.resource.data.keys().hasOnly([
+          'user_id',
+          'revoked_at',
+          'revoked_by'
+        ])
+        && request.resource.data.user_id == userId
+        && request.resource.data.revoked_at == request.time
+        && request.resource.data.revoked_by == request.auth.uid
+        && getAfter(/databases/$(database)/documents/users/$(userId)).data.access_revoked == true;
+      allow update: if false;
+      allow delete: if isSuperAdmin()
+        && getAfter(/databases/$(database)/documents/users/$(userId)).data.access_revoked == false;
     }
   }
 }
