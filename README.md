@@ -55,11 +55,11 @@ A unified emergency healthcare coordination platform built with **Flutter Web** 
 ## Tech Stack
 
 - **Frontend:** Flutter Web (Dart)
-- **Backend:** Firebase (Auth, Cloud Firestore, Storage)
+- **Backend:** Firebase (Auth and Cloud Firestore)
 - **State Management:** Provider (ChangeNotifier)
 - **Routing:** GoRouter with role-based route guards
 - **Auth:** Firebase Email/Password + Google Sign-In (`signInWithPopup`)
-- **Image Storage:** Cloudinary (free tier, unsigned uploads)
+- **Prescription Storage:** Private Firestore blob documents (700 KB maximum)
 - **Maps:** flutter_map + OpenStreetMap (free, no API key, real street maps)
 - **Distances:** OSRM road distances (actual driving distance, free API)
 - **Currency:** Bangladeshi Taka (৳) formatting
@@ -106,24 +106,11 @@ flutter pub get
 - Select **Start in test mode** (we'll deploy proper rules later)
 - Choose a region close to your users (e.g., `asia-southeast1`)
 
-### 3. Set Up Cloudinary (Prescription Image Uploads)
+### 3. Prescription Images
 
-Prescription images are stored on [Cloudinary](https://cloudinary.com) (free tier — 25GB storage, 25GB bandwidth/month).
+Prescription images are stored as private documents in the `prescription_documents` Firestore collection. No Cloud Storage or billing plan is required. Images are limited to 700 KB and can be read only by their owner or the responsible service admin.
 
-1. Sign up at [cloudinary.com](https://cloudinary.com) (free)
-2. From the **Dashboard**, copy your **Cloud Name**
-3. Go to **Settings** → **Upload** → scroll to **Upload presets**
-4. Click **Add upload preset**:
-   - **Preset name:** `hospital_services`
-   - **Signing Mode:** `Unsigned`
-   - **Folder:** `prescriptions` (optional)
-   - Save
-5. Open `lib/services/cloudinary_service.dart` and update:
-
-```dart
-static const String cloudName = 'YOUR_CLOUD_NAME';
-static const String uploadPreset = 'hospital_services';
-```
+Bookings created before this migration may still contain `prescription_image_url` values. Remove those legacy assets from the Cloudinary dashboard after confirming they are no longer needed; the application no longer creates new Cloudinary uploads.
 
 ### 4. Connect Firebase to the Project
 
@@ -140,7 +127,7 @@ This generates/overwrites `lib/firebase_options.dart` with your project's config
 firebase deploy --only firestore:rules
 ```
 
-This deploys the rules from `firestore.rules` which enforce:
+This deploys `firestore.rules`, which enforces:
 - Public read access for organization/service listings
 - Authenticated users can create bookings (if profile is complete)
 - Service admins can only manage their assigned organization and service
@@ -164,12 +151,16 @@ firebase deploy --only hosting
 
 ## First-Time Operation Guide
 
-### Step 1: First User Becomes Super Admin
+### Step 1: Provision the Initial Super Admin
 
-The **first user** to sign in (via email registration or Google) is automatically promoted to **Super Admin**. This is tracked via a `config/platform` document in Firestore. All subsequent users are created as **patients**.
+All users are created as **patients**. The initial Super Admin must be provisioned through the trusted Firebase Console so an arbitrary first registrant cannot take control of an uninitialized platform.
 
-1. On the login page, either **register with email** or click **Sign in with Google**
-2. You'll be redirected to the **Platform Admin Dashboard**
+1. On the login page, register the intended administrator with email or Google. This creates `users/{uid}` with role `patient`.
+2. In Firebase Console, open **Firestore Database** -> `users` -> the intended administrator's UID.
+3. Change `role` to `super_admin` and leave `organization_id` as `null`.
+4. Return to the app. The live profile listener redirects the account to the **Platform Admin Dashboard**.
+
+Client requests cannot create a `super_admin` profile. After the initial trusted provisioning, that Super Admin can assign additional roles from **Manage Users**.
 
 ### Step 2: Load Demo Data
 
@@ -275,8 +266,7 @@ lib/
 ├── services/                          # Firebase service layer
 │   ├── auth_service.dart              # Email/Password + Google Sign-In
 │   ├── firestore_service.dart         # Generic Firestore CRUD + transactions
-│   ├── cloudinary_service.dart         # Cloudinary image upload API
-│   ├── storage_service.dart           # Image upload wrapper (uses Cloudinary)
+│   ├── prescription_service.dart      # Private Firestore prescription blobs
 │   ├── location_service.dart          # Geolocation API wrapper
 │   └── seed_data_service.dart         # Demo data seeder
 ├── features/
@@ -325,15 +315,15 @@ organizations/{orgId}
 booking_requests/{requestId}
 ├── type, organization_id, organization_name, user_id
 ├── patient_name, contact_number, status, held_until, estimated_price, created_at
-├── bed_type, prescription_image_url           (bed bookings)
-├── blood_type, units_needed, hospital_name, prescribing_doctor  (blood requests)
-└── ambulance_type, ambulance_id, pickup_address, destination_address, patient_condition_notes  (ambulance)
+├── bed_id, bed_type, prescription_document_id           (bed bookings)
+├── blood_stock_id, blood_type, units_needed, hospital_id, hospital_name, prescribing_doctor  (blood requests)
+└── ambulance_type, ambulance_reference_id, ambulance_id, pickup_address, destination_hospital_id  (ambulance)
+
+prescription_documents/{requestId}
+└── user_id, organization_id, booking_type, content_type, image_bytes, created_at
 
 users/{uid}
 └── email, name, phone, role, organization_id, profile_complete
-
-config/platform
-└── initialized, initialized_by, initialized_at
 ```
 
 ## Common Issues
@@ -343,21 +333,21 @@ config/platform
 | Google Sign-In opens blank popup | OAuth not configured | Add your domain to Firebase Auth → Authorized domains |
 | Email sign-in fails silently | Email/Password provider not enabled | Firebase Console → Authentication → Sign-in method → enable Email/Password |
 | "Weak password" error on register | Password too short | Firebase requires at least 6 characters |
-| Firestore permission denied | Security rules not deployed | Run `firebase deploy --only firestore:rules` |
+| Firebase permission denied | Security rules not deployed | Run `firebase deploy --only firestore:rules` |
 | `test_admin` or `bed_admin` cannot save data | Production is still using the legacy role rules | Deploy the updated `firestore.rules`; use `hospital_admin` only as a temporary migration role |
 | Super admin cannot remove a user profile | Deployed rules do not allow user document deletion | Deploy the updated `firestore.rules` |
 | Bookings disappear after refresh | Composite index required | Check browser console for Firestore index creation links, or the app handles this by client-side sorting |
-| First user isn't super admin | `config/platform` doc already exists | Delete `config/platform` from Firestore console, then sign in again |
+| Initial administrator is still a patient | Super Admins are not assigned automatically | Provision the intended account through Firebase Console as described in the First-Time Operation Guide |
 | Bed data not loading for admin | Subcollections not seeded | Load demo data from Super Admin dashboard, or manually add bed types |
 
 ## Development Notes
 
-- **No Cloud Functions** — the project runs entirely on Firebase Spark (free tier) with client-side logic
+- **No Cloud Functions** — the project runs on Firebase's free Firestore tier with client-side logic
 - **Lazy expiry** — hold timers are checked client-side on every booking read, not via server-side cron
 - **Denormalized org names** — `organization_name` is stored directly in booking documents to avoid extra reads
 - **Client-side search** — test search and hospital autocomplete filter locally after fetching all records
 - **Currency** — all prices are in Bangladeshi Taka (৳), formatted via `intl` package
-- **Image storage** — uses Cloudinary (free tier) instead of Firebase Storage to avoid billing requirements
+- **Prescription storage** — images are private Firestore blobs capped at 700 KB; booking/image creation and terminal cleanup are atomic
 - **Maps** — flutter_map with OpenStreetMap tiles (free, no API key); color-coded markers (green >5, yellow 1-4, red 0) on all listing screens
 - **Road distances** — uses OSRM Table API to batch-fetch real driving distances (not straight-line); falls back to Haversine if OSRM is unavailable
 

@@ -35,8 +35,7 @@ graph TB
         direction LR
         AS[AuthService]
         FS[FirestoreService]
-        SS[StorageService]
-        CS[CloudinaryService]
+        PRS[PrescriptionService]
         LS[LocationService]
         SDS[SeedDataService]
     end
@@ -45,7 +44,6 @@ graph TB
         direction LR
         FA[Firebase Auth]
         CF[Cloud Firestore]
-        CLD[Cloudinary CDN]
         OSM[OpenStreetMap / OSRM]
     end
 
@@ -57,8 +55,7 @@ graph TB
     SML --> SL
     AS --> FA
     FS --> CF
-    SS --> CLD
-    CS --> CLD
+    PRS --> CF
     LS --> OSM
     SDS --> CF
     FSR -.->|enforces access| CF
@@ -374,13 +371,19 @@ erDiagram
         double estimated_price
         timestamp created_at
         string bed_type "nullable"
-        string prescription_image_url "nullable"
+        string bed_id "nullable"
+        string prescription_document_id "nullable"
         string blood_type "nullable"
+        string blood_stock_id "nullable"
         int units_needed "nullable"
+        string hospital_id "nullable"
         string hospital_name "nullable"
         string prescribing_doctor "nullable"
         string ambulance_type "nullable"
+        string ambulance_reference_id "nullable"
+        string ambulance_id "nullable"
         string pickup_address "nullable"
+        string destination_hospital_id "nullable"
         string destination_address "nullable"
         string patient_condition_notes "nullable"
     }
@@ -395,12 +398,6 @@ erDiagram
         boolean profile_complete
     }
 
-    CONFIG_PLATFORM {
-        boolean initialized
-        string initialized_by FK
-        string initialized_at
-    }
-
     ORGANIZATIONS ||--o{ BEDS : "has (hospitals)"
     ORGANIZATIONS ||--o{ BLOOD_STOCK : "has (blood banks)"
     ORGANIZATIONS ||--o{ AMBULANCES : "has (operators)"
@@ -408,7 +405,6 @@ erDiagram
     ORGANIZATIONS ||--o{ BOOKING_REQUESTS : "receives"
     USERS ||--o{ BOOKING_REQUESTS : "submits"
     USERS |o--o| ORGANIZATIONS : "administers"
-    USERS ||--|| CONFIG_PLATFORM : "initializes (first user)"
 ```
 
 ---
@@ -475,14 +471,10 @@ flowchart TD
     E -->|Yes| F[Load existing\nUserModel]
     F --> G{Check user role}
 
-    E -->|No — First time| H{config/platform\ndocument exists?}
+    E -->|No - First time| L[Assign role:\npatient]
+    L --> K[Create user document\nin Firestore]
 
-    H -->|No — First ever user| I[Assign role:\nsuper_admin]
-    I --> J[Create config/platform\ninitialized: true]
-    J --> K[Create user document\nin Firestore]
-
-    H -->|Yes — Not first user| L[Assign role:\npatient]
-    L --> K
+    P[Trusted operator provisions\ninitial super_admin\nin Firebase Console] --> G
 
     K --> G
 
@@ -494,8 +486,8 @@ flowchart TD
     style C1 fill:#e3f2fd,stroke:#1565c0,color:#000
     style C2 fill:#e3f2fd,stroke:#1565c0,color:#000
     style FP fill:#fff9c4,stroke:#f57f17,color:#000
-    style I fill:#fce4ec,stroke:#c62828,color:#000
     style L fill:#e8f5e9,stroke:#2e7d32,color:#000
+    style P fill:#fce4ec,stroke:#c62828,color:#000
     style M fill:#f3e5f5,stroke:#6a1b9a,color:#000
     style N fill:#fff3e0,stroke:#e65100,color:#000
     style O fill:#e3f2fd,stroke:#1565c0,color:#000
@@ -634,8 +626,7 @@ graph TB
     subgraph SVC["Service Layer"]
         AuthS[AuthService]
         FireS[FirestoreService]
-        StorS[StorageService]
-        CldS[CloudinaryService]
+        PresS[PrescriptionService]
         LocS[LocationService]
         SeedS[SeedDataService]
     end

@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../../../models/booking_request_model.dart';
 import '../../../providers/booking_provider.dart';
 import '../../../shared/widgets/booking_status_chip.dart';
+import '../../../shared/widgets/prescription_image.dart';
 import '../../../shared/widgets/price_widget.dart';
 
 class BookingDetailScreen extends StatefulWidget {
@@ -264,32 +265,6 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
                           label: 'Bed Type',
                           value: booking.bedType ?? '-',
                         ),
-                        if (booking.prescriptionImageUrl != null) ...[
-                          const SizedBox(height: 12),
-                          const Text(
-                            'Prescription',
-                            style: TextStyle(fontWeight: FontWeight.w500),
-                          ),
-                          const SizedBox(height: 8),
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(8),
-                            child: Image.network(
-                              booking.prescriptionImageUrl!,
-                              height: 200,
-                              fit: BoxFit.contain,
-                              errorBuilder: (_, _, _) => Container(
-                                height: 100,
-                                decoration: BoxDecoration(
-                                  color: Colors.grey.shade100,
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: const Center(
-                                  child: Text('Image unavailable'),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
                       ],
                       if (booking.type == 'ambulance') ...[
                         _DetailRow(
@@ -340,6 +315,23 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
                           value: booking.queueDate ?? '-',
                         ),
                         _DetailRow(label: 'Receipt ID', value: booking.id),
+                      ],
+                      if (booking.prescriptionDocumentId != null ||
+                          booking.prescriptionImageUrl != null) ...[
+                        const SizedBox(height: 12),
+                        const Text(
+                          'Prescription',
+                          style: TextStyle(fontWeight: FontWeight.w500),
+                        ),
+                        const SizedBox(height: 8),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: PrescriptionImage(
+                            documentId: booking.prescriptionDocumentId,
+                            legacyUrl: booking.prescriptionImageUrl,
+                            height: 200,
+                          ),
+                        ),
                       ],
                       if (booking.isConfirmed && booking.heldUntil != null) ...[
                         const Divider(height: 32),

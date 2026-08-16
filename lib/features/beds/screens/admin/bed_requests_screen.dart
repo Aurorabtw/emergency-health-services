@@ -6,6 +6,7 @@ import '../../../../models/booking_request_model.dart';
 import '../../../../providers/auth_provider.dart';
 import '../../../../providers/booking_provider.dart';
 import '../../../../shared/widgets/booking_status_chip.dart';
+import '../../../../shared/widgets/prescription_image.dart';
 import '../../../../shared/widgets/price_widget.dart';
 import '../../providers/bed_provider.dart';
 
@@ -39,13 +40,18 @@ class _BedRequestsScreenState extends State<BedRequestsScreen> {
   Future<void> _approve(BookingRequestModel booking) async {
     try {
       final beds = context.read<BedProvider>().getBedsForHospital(_orgId!);
-      final bed = beds.firstWhere((b) => b.type == booking.bedType);
+      final bed = beds.firstWhere(
+        (b) => booking.bedId != null
+            ? b.id == booking.bedId
+            : b.type == booking.bedType,
+      );
 
       await context.read<BookingProvider>().confirmBooking(
-        booking.id,
-        'organizations/$_orgId/beds/${bed.id}',
-        'held_beds',
-        bed.holdDurationMinutes,
+        bookingId: booking.id,
+        organizationId: _orgId!,
+        resourceId: bed.id,
+        bookingType: 'bed',
+        holdMinutes: bed.holdDurationMinutes,
       );
       _loadRequests();
     } catch (e) {
@@ -60,13 +66,17 @@ class _BedRequestsScreenState extends State<BedRequestsScreen> {
   Future<void> _admit(BookingRequestModel booking) async {
     try {
       final beds = context.read<BedProvider>().getBedsForHospital(_orgId!);
-      final bed = beds.firstWhere((b) => b.type == booking.bedType);
+      final bed = beds.firstWhere(
+        (b) => booking.bedId != null
+            ? b.id == booking.bedId
+            : b.type == booking.bedType,
+      );
 
       await context.read<BookingProvider>().admitBooking(
-        booking.id,
-        'organizations/$_orgId/beds/${bed.id}',
-        'held_beds',
-        'admitted_beds',
+        bookingId: booking.id,
+        organizationId: _orgId!,
+        resourceId: bed.id,
+        bookingType: 'bed',
       );
       _loadRequests();
     } catch (e) {
@@ -171,58 +181,10 @@ class _BedRequestsScreenState extends State<BedRequestsScreen> {
                                 BookingStatusChip(status: booking.status),
                               ],
                             ),
-                            if (booking.prescriptionImageUrl != null)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 8),
-                                child: TextButton.icon(
-                                  onPressed: () {
-                                    showDialog(
-                                      context: context,
-                                      builder: (dialogContext) => Dialog(
-                                        child: Column(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            AppBar(
-                                              title: const Text('Prescription'),
-                                              automaticallyImplyLeading: false,
-                                              actions: [
-                                                IconButton(
-                                                  icon: const Icon(Icons.close),
-                                                  onPressed: () =>
-                                                      Navigator.pop(
-                                                        dialogContext,
-                                                      ),
-                                                ),
-                                              ],
-                                            ),
-                                            ConstrainedBox(
-                                              constraints: const BoxConstraints(
-                                                maxHeight: 500,
-                                                maxWidth: 600,
-                                              ),
-                                              child: Image.network(
-                                                booking.prescriptionImageUrl!,
-                                                fit: BoxFit.contain,
-                                                errorBuilder: (_, _, _) =>
-                                                    const Padding(
-                                                      padding: EdgeInsets.all(
-                                                        48,
-                                                      ),
-                                                      child: Text(
-                                                        'Image unavailable',
-                                                      ),
-                                                    ),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    );
-                                  },
-                                  icon: const Icon(Icons.image),
-                                  label: const Text('View Prescription'),
-                                ),
-                              ),
+                            PrescriptionDialogButton(
+                              documentId: booking.prescriptionDocumentId,
+                              legacyUrl: booking.prescriptionImageUrl,
+                            ),
                             if (booking.isPending) ...[
                               const SizedBox(height: 12),
                               Row(

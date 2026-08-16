@@ -1,8 +1,11 @@
+import 'dart:typed_data';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import '../models/booking_request_model.dart';
 import '../services/firestore_service.dart';
+import '../services/prescription_service.dart';
 import '../shared/utils/lazy_expiry.dart';
 
 class BookingProvider extends ChangeNotifier {
@@ -53,7 +56,8 @@ class BookingProvider extends ChangeNotifier {
         )
         .map((snapshot) {
           final bookings = snapshot.docs
-              .map(BookingRequestModel.fromFirestore)
+              .map(BookingRequestModel.tryFromFirestore)
+              .whereType<BookingRequestModel>()
               .toList();
           bookings.sort((a, b) => b.createdAt.compareTo(a.createdAt));
           return bookings;
@@ -65,7 +69,8 @@ class BookingProvider extends ChangeNotifier {
         .streamDocument('booking_requests/$bookingId')
         .asyncMap((doc) async {
           if (!doc.exists) return null;
-          var booking = BookingRequestModel.fromFirestore(doc);
+          var booking = BookingRequestModel.tryFromFirestore(doc);
+          if (booking == null) return null;
           booking = await LazyExpiry.checkAndExpire(booking, _firestoreService);
           return booking;
         });
@@ -76,7 +81,8 @@ class BookingProvider extends ChangeNotifier {
   ) async {
     final bookings = <BookingRequestModel>[];
     for (final doc in snapshot.docs) {
-      var booking = BookingRequestModel.fromFirestore(doc);
+      var booking = BookingRequestModel.tryFromFirestore(doc);
+      if (booking == null) continue;
       booking = await LazyExpiry.checkAndExpire(booking, _firestoreService);
       bookings.add(booking);
     }
@@ -97,7 +103,8 @@ class BookingProvider extends ChangeNotifier {
 
       _bookings = [];
       for (final doc in snapshot.docs) {
-        var booking = BookingRequestModel.fromFirestore(doc);
+        var booking = BookingRequestModel.tryFromFirestore(doc);
+        if (booking == null) continue;
         booking = await LazyExpiry.checkAndExpire(booking, _firestoreService);
         _bookings.add(booking);
       }
@@ -130,7 +137,8 @@ class BookingProvider extends ChangeNotifier {
 
       _bookings = [];
       for (final doc in snapshot.docs) {
-        var booking = BookingRequestModel.fromFirestore(doc);
+        var booking = BookingRequestModel.tryFromFirestore(doc);
+        if (booking == null) continue;
         booking = await LazyExpiry.checkAndExpire(booking, _firestoreService);
         _bookings.add(booking);
       }
@@ -161,7 +169,8 @@ class BookingProvider extends ChangeNotifier {
 
       _bookings = [];
       for (final doc in snapshot.docs) {
-        var booking = BookingRequestModel.fromFirestore(doc);
+        var booking = BookingRequestModel.tryFromFirestore(doc);
+        if (booking == null) continue;
         booking = await LazyExpiry.checkAndExpire(booking, _firestoreService);
         _bookings.add(booking);
       }
@@ -180,7 +189,8 @@ class BookingProvider extends ChangeNotifier {
         'booking_requests/$bookingId',
       );
       if (doc.exists) {
-        var booking = BookingRequestModel.fromFirestore(doc);
+        var booking = BookingRequestModel.tryFromFirestore(doc);
+        if (booking == null) return null;
         booking = await LazyExpiry.checkAndExpire(booking, _firestoreService);
         return booking;
       }
@@ -188,24 +198,6 @@ class BookingProvider extends ChangeNotifier {
       _error = 'Failed to load booking: $e';
     }
     return null;
-  }
-
-  Future<String> createBooking(BookingRequestModel booking) async {
-    try {
-      final id = _firestoreService.generateId('booking_requests');
-      final newBooking = booking.copyWith(id: id);
-      await _firestoreService.setDocument(
-        'booking_requests/$id',
-        newBooking.toFirestore(),
-      );
-      _bookings.insert(0, newBooking);
-      notifyListeners();
-      return id;
-    } catch (e) {
-      _error = 'Failed to create booking: $e';
-      notifyListeners();
-      rethrow;
-    }
   }
 
   Future<String> createDiagnosticSerial({
@@ -323,7 +315,9 @@ class BookingProvider extends ChangeNotifier {
           'last_request_id': generatedBookingId,
           'updated_at': Timestamp.fromDate(now),
         });
-        transaction.set(bookingRef, booking.toFirestore());
+        final bookingData = booking.toFirestore();
+        bookingData['created_at'] = FieldValue.serverTimestamp();
+        transaction.set(bookingRef, bookingData);
         return generatedBookingId;
       });
     } catch (e) {
@@ -502,54 +496,157 @@ class BookingProvider extends ChangeNotifier {
     return '$year-$month-$day';
   }
 
-  Future<void> confirmBooking(
-    String bookingId,
-    String resourcePath,
-    String heldField,
-    int holdMinutes,
-  ) async {
+  Future<void> confirmBooking({
+    required String bookingId,
+    required String organizationId,
+    required String resourceId,
+    required String bookingType,
+    required int holdMinutes,
+  }) async {
     try {
+      String? validationError;
       await _firestoreService.runTransaction((transaction) async {
-        final resourceDoc = _firestoreService.db.doc(resourcePath);
-        final resourceSnapshot = await transaction.get(resourceDoc);
-        final data = resourceSnapshot.data() as Map<String, dynamic>;
-
-        final currentHeld = data[heldField] ?? 0;
-        final total =
-            data['total_beds'] ??
-            data['total_units'] ??
-            data['total_vehicles'] ??
-            0;
-        final admitted =
-            data['admitted_beds'] ??
-            data['issued_units'] ??
-            data['in_transit_vehicles'] ??
-            0;
-        final available = total - currentHeld - admitted;
-
-        if (available <= 0) {
-          throw Exception('No resources available');
+        if (bookingType != 'bed' && bookingType != 'blood') {
+          validationError = 'Unsupported inventory booking type.';
+          return;
         }
 
-        final heldUntil = DateTime.now().add(Duration(minutes: holdMinutes));
-
-        transaction.update(resourceDoc, {heldField: currentHeld + 1});
-
+        final isBed = bookingType == 'bed';
+        final collection = isBed ? 'beds' : 'blood_stock';
+        final referenceField = isBed ? 'bed_id' : 'blood_stock_id';
+        final requestedTypeField = isBed ? 'bed_type' : 'blood_type';
+        final resourceTypeField = isBed ? 'type' : 'blood_type';
+        final heldField = isBed ? 'held_beds' : 'held_units';
+        final totalField = isBed ? 'total_beds' : 'total_units';
+        final usedField = isBed ? 'admitted_beds' : 'issued_units';
         final bookingDoc = _firestoreService.db.doc(
           'booking_requests/$bookingId',
         );
+        final resourceDoc = _firestoreService.db.doc(
+          'organizations/$organizationId/$collection/$resourceId',
+        );
+        final bookingSnapshot = await transaction.get(bookingDoc);
+        final resourceSnapshot = await transaction.get(resourceDoc);
+
+        if (!bookingSnapshot.exists || !resourceSnapshot.exists) {
+          validationError = 'The booking or requested resource no longer exists.';
+          return;
+        }
+
+        final bookingData = bookingSnapshot.data() as Map<String, dynamic>;
+        final resourceData = resourceSnapshot.data() as Map<String, dynamic>;
+        final storedResourceId = bookingData[referenceField] as String?;
+        final requestedType = bookingData[requestedTypeField] as String?;
+        final resourceType = resourceData[resourceTypeField] as String?;
+        if (bookingData['status'] != 'pending') {
+          validationError = 'This request has already been processed.';
+          return;
+        }
+        if (bookingData['type'] != bookingType ||
+            bookingData['organization_id'] != organizationId ||
+            (storedResourceId != null && storedResourceId != resourceId) ||
+            requestedType == null ||
+            requestedType != resourceType) {
+          validationError = 'The booking does not match this resource.';
+          return;
+        }
+
+        final quantity = isBed ? 1 : bookingData['units_needed'] as int?;
+        final currentHeld = resourceData[heldField] as int?;
+        final total = resourceData[totalField] as int?;
+        final used = resourceData[usedField] as int?;
+        final effectiveHoldMinutes = isBed
+            ? resourceData['hold_duration_minutes'] as int? ?? holdMinutes
+            : holdMinutes;
+        if (quantity == null ||
+            quantity <= 0 ||
+            currentHeld == null ||
+            total == null ||
+            used == null ||
+            effectiveHoldMinutes <= 0 ||
+            effectiveHoldMinutes > 1440) {
+          validationError = 'The resource has invalid inventory settings.';
+          return;
+        }
+        if (total - currentHeld - used < quantity) {
+          validationError = 'Not enough resources are currently available.';
+          return;
+        }
+
+        final heldUntil = DateTime.now().add(
+          Duration(minutes: effectiveHoldMinutes),
+        );
+        transaction.update(resourceDoc, {
+          heldField: currentHeld + quantity,
+        });
         transaction.update(bookingDoc, {
           'status': 'confirmed',
           'held_until': Timestamp.fromDate(heldUntil),
+          referenceField: resourceId,
         });
       });
 
+      if (validationError != null) {
+        throw BookingOperationException(validationError!);
+      }
+
       await _refreshBooking(bookingId);
     } catch (e) {
-      _error = 'Failed to confirm booking: $e';
+      final message = _operationError(
+        e,
+        fallback: 'Failed to confirm booking.',
+      );
+      _error = message;
+      notifyListeners();
+      throw BookingOperationException(message);
+    }
+  }
+
+  Future<String> createBookingWithPrescription(
+    BookingRequestModel booking,
+    Uint8List prescriptionBytes, {
+    String contentType = 'image/jpeg',
+  }) async {
+    try {
+      final id = booking.id.isEmpty ? generateBookingId() : booking.id;
+      final newBooking = booking.copyWith(
+        id: id,
+        prescriptionDocumentId: id,
+      );
+      final bookingData = newBooking.toFirestore();
+      bookingData['created_at'] = FieldValue.serverTimestamp();
+      final prescriptionData = PrescriptionService.documentData(
+        bookingId: id,
+        userId: newBooking.userId,
+        organizationId: newBooking.organizationId,
+        bookingType: newBooking.type,
+        data: prescriptionBytes,
+        contentType: contentType,
+      );
+
+      final batch = _firestoreService.db.batch();
+      batch.set(
+        _firestoreService.db.doc('booking_requests/$id'),
+        bookingData,
+      );
+      batch.set(
+        _firestoreService.db.doc('prescription_documents/$id'),
+        prescriptionData,
+      );
+      await batch.commit();
+
+      _bookings.insert(0, newBooking);
+      notifyListeners();
+      return id;
+    } catch (e) {
+      _error = 'Failed to create booking: $e';
       notifyListeners();
       rethrow;
     }
+  }
+
+  String generateBookingId() {
+    return _firestoreService.generateId('booking_requests');
   }
 
   Future<void> confirmAmbulanceBooking({
@@ -584,6 +681,15 @@ class BookingProvider extends ChangeNotifier {
         }
         if (bookingData['status'] != 'pending') {
           validationError = 'This request has already been processed.';
+          return;
+        }
+        if (bookingData['type'] != 'ambulance' ||
+            bookingData['organization_id'] != organizationId ||
+            bookingData['ambulance_type'] != ambulanceData['type'] ||
+            bookingData['estimated_price'] != ambulanceData['base_fare'] ||
+            holdMinutes <= 0 ||
+            holdMinutes > 1440) {
+          validationError = 'The booking does not match this ambulance.';
           return;
         }
 
@@ -636,8 +742,23 @@ class BookingProvider extends ChangeNotifier {
         }
 
         final bookingData = bookingSnapshot.data() as Map<String, dynamic>;
+        final ambulanceData =
+            ambulanceSnapshot.data() as Map<String, dynamic>;
         if (bookingData['status'] != 'confirmed') {
           validationError = 'Only confirmed trips can be completed.';
+          return;
+        }
+        final heldUntil = bookingData['held_until'] as Timestamp?;
+        if (heldUntil == null || !heldUntil.toDate().isAfter(DateTime.now())) {
+          validationError = 'This ambulance reservation has expired.';
+          return;
+        }
+        if (bookingData['type'] != 'ambulance' ||
+            bookingData['organization_id'] != organizationId ||
+            bookingData['ambulance_id'] != ambulanceId ||
+            bookingData['ambulance_type'] != ambulanceData['type'] ||
+            ambulanceData['status'] != 'busy') {
+          validationError = 'The booking does not match this ambulance.';
           return;
         }
 
@@ -664,37 +785,100 @@ class BookingProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> admitBooking(
-    String bookingId,
-    String resourcePath,
-    String heldField,
-    String admittedField,
-  ) async {
+  Future<void> admitBooking({
+    required String bookingId,
+    required String organizationId,
+    required String resourceId,
+    required String bookingType,
+  }) async {
     try {
+      String? validationError;
       await _firestoreService.runTransaction((transaction) async {
-        final resourceDoc = _firestoreService.db.doc(resourcePath);
-        final resourceSnapshot = await transaction.get(resourceDoc);
-        final data = resourceSnapshot.data() as Map<String, dynamic>;
+        if (bookingType != 'bed' && bookingType != 'blood') {
+          validationError = 'Unsupported inventory booking type.';
+          return;
+        }
 
-        final currentHeld = data[heldField] ?? 0;
-        final currentAdmitted = data[admittedField] ?? 0;
-
-        transaction.update(resourceDoc, {
-          heldField: currentHeld > 0 ? currentHeld - 1 : 0,
-          admittedField: currentAdmitted + 1,
-        });
-
+        final isBed = bookingType == 'bed';
+        final collection = isBed ? 'beds' : 'blood_stock';
+        final referenceField = isBed ? 'bed_id' : 'blood_stock_id';
+        final requestedTypeField = isBed ? 'bed_type' : 'blood_type';
+        final resourceTypeField = isBed ? 'type' : 'blood_type';
+        final heldField = isBed ? 'held_beds' : 'held_units';
+        final admittedField = isBed ? 'admitted_beds' : 'issued_units';
         final bookingDoc = _firestoreService.db.doc(
           'booking_requests/$bookingId',
         );
-        transaction.update(bookingDoc, {'status': 'admitted'});
+        final resourceDoc = _firestoreService.db.doc(
+          'organizations/$organizationId/$collection/$resourceId',
+        );
+        final bookingSnapshot = await transaction.get(bookingDoc);
+        final resourceSnapshot = await transaction.get(resourceDoc);
+
+        if (!bookingSnapshot.exists || !resourceSnapshot.exists) {
+          validationError = 'The booking or requested resource no longer exists.';
+          return;
+        }
+
+        final bookingData = bookingSnapshot.data() as Map<String, dynamic>;
+        final resourceData = resourceSnapshot.data() as Map<String, dynamic>;
+        final storedResourceId = bookingData[referenceField] as String?;
+        final requestedType = bookingData[requestedTypeField] as String?;
+        final resourceType = resourceData[resourceTypeField] as String?;
+        final heldUntil = bookingData['held_until'] as Timestamp?;
+        if (bookingData['status'] != 'confirmed') {
+          validationError = 'Only confirmed requests can be completed.';
+          return;
+        }
+        if (heldUntil == null || !heldUntil.toDate().isAfter(DateTime.now())) {
+          validationError = 'This reservation hold has expired.';
+          return;
+        }
+        if (bookingData['type'] != bookingType ||
+            bookingData['organization_id'] != organizationId ||
+            (storedResourceId != null && storedResourceId != resourceId) ||
+            requestedType == null ||
+            requestedType != resourceType) {
+          validationError = 'The booking does not match this resource.';
+          return;
+        }
+
+        final quantity = isBed ? 1 : bookingData['units_needed'] as int?;
+        final currentHeld = resourceData[heldField] as int?;
+        final currentAdmitted = resourceData[admittedField] as int?;
+        if (quantity == null ||
+            quantity <= 0 ||
+            currentHeld == null ||
+            currentAdmitted == null ||
+            currentHeld < quantity) {
+          validationError = 'The held inventory no longer matches this request.';
+          return;
+        }
+
+        transaction.update(resourceDoc, {
+          heldField: currentHeld - quantity,
+          admittedField: currentAdmitted + quantity,
+        });
+        transaction.update(bookingDoc, {
+          'status': 'admitted',
+          'held_until': null,
+          referenceField: resourceId,
+        });
       });
+
+      if (validationError != null) {
+        throw BookingOperationException(validationError!);
+      }
 
       await _refreshBooking(bookingId);
     } catch (e) {
-      _error = 'Failed to admit booking: $e';
+      final message = _operationError(
+        e,
+        fallback: 'Failed to complete booking.',
+      );
+      _error = message;
       notifyListeners();
-      rethrow;
+      throw BookingOperationException(message);
     }
   }
 
@@ -714,7 +898,18 @@ class BookingProvider extends ChangeNotifier {
   Future<void> clearTerminalBookings() async {
     final terminal = _bookings.where((b) => b.isTerminal).toList();
     for (final booking in terminal) {
-      await _firestoreService.deleteDocument('booking_requests/${booking.id}');
+      final batch = _firestoreService.db.batch();
+      if (booking.prescriptionDocumentId != null) {
+        batch.delete(
+          _firestoreService.db.doc(
+            'prescription_documents/${booking.prescriptionDocumentId}',
+          ),
+        );
+      }
+      batch.delete(
+        _firestoreService.db.doc('booking_requests/${booking.id}'),
+      );
+      await batch.commit();
     }
     _bookings.removeWhere((b) => b.isTerminal);
     notifyListeners();
@@ -725,7 +920,8 @@ class BookingProvider extends ChangeNotifier {
       'booking_requests/$bookingId',
     );
     if (doc.exists) {
-      final updated = BookingRequestModel.fromFirestore(doc);
+      final updated = BookingRequestModel.tryFromFirestore(doc);
+      if (updated == null) return;
       final index = _bookings.indexWhere((b) => b.id == bookingId);
       if (index != -1) {
         _bookings[index] = updated;

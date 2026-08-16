@@ -57,7 +57,7 @@ class Validators {
       return '$fieldName is required';
     }
     final number = int.tryParse(value);
-    if (number == null || number < 0) {
+    if (number == null || number <= 0) {
       return 'Enter a valid whole number';
     }
     return null;

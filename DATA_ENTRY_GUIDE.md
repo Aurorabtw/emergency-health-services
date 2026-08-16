@@ -38,9 +38,9 @@ A step-by-step guide for teammates to add and manage all types of data in the Em
 
 ## 1. Getting Started
 
-### First Login — Who Gets Super Admin?
+### First Login - Who Gets Super Admin?
 
-The **first person** to sign in (via email registration or Google) becomes the **Super Admin** automatically. All subsequent users start as **patients**.
+All users start as **patients**. The initial Super Admin must be provisioned through the trusted Firebase Console; the first person to register is not automatically trusted.
 
 **Option A — Register with Email:**
 1. Open the app in Chrome
@@ -53,9 +53,14 @@ The **first person** to sign in (via email registration or Google) becomes the *
 2. Click **Sign in with Google** on the login page
 3. Choose your Google account in the popup
 
-Either way, the first user is redirected to the **Platform Admin Dashboard**.
+After the intended administrator signs in once:
 
-> ⚠️ If someone else needs to be Super Admin, the current Super Admin can reassign roles from **Manage Users**.
+1. Open **Firebase Console** -> **Firestore Database** -> `users`
+2. Open the document whose ID is that administrator's Firebase Auth UID
+3. Change `role` from `patient` to `super_admin`
+4. Keep `organization_id` set to `null`
+
+The app's live profile listener then redirects that account to the **Platform Admin Dashboard**. Once provisioned, the Super Admin can assign additional roles from **Manage Users**.
 
 ### Forgot Your Password?
 
@@ -511,7 +516,7 @@ If you're adding data manually (instead of using demo data), here are realistic 
 
 ## Quick Checklist for Full Platform Setup
 
-- [ ] First user signs in (email or Google) → becomes Super Admin
+- [ ] Intended administrator signs in, then is provisioned as Super Admin through Firebase Console
 - [ ] Super Admin loads demo data OR adds organizations manually
 - [ ] For each organization:
   - [ ] Add the organization (name, address, coordinates, phone)

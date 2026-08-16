@@ -14,7 +14,10 @@ class BookingRequestModel {
   final DateTime createdAt;
 
   // Bed-specific
+  final String? bedId;
   final String? bedType;
+  final String? prescriptionDocumentId;
+  // Read-only compatibility for prescriptions uploaded before Firestore migration.
   final String? prescriptionImageUrl;
 
   // Ambulance-specific
@@ -23,14 +26,18 @@ class BookingRequestModel {
   final double? destinationLat;
   final double? destinationLng;
   final String? ambulanceType;
+  final String? ambulanceReferenceId;
   final String? ambulanceId;
   final String? patientConditionNotes;
   final String? pickupAddress;
+  final String? destinationHospitalId;
   final String? destinationAddress;
 
   // Blood-specific
+  final String? bloodStockId;
   final String? bloodType;
   final int? unitsNeeded;
+  final String? hospitalId;
   final String? hospitalName;
   final String? prescribingDoctor;
 
@@ -59,19 +66,25 @@ class BookingRequestModel {
     this.heldUntil,
     this.estimatedPrice,
     required this.createdAt,
+    this.bedId,
     this.bedType,
+    this.prescriptionDocumentId,
     this.prescriptionImageUrl,
     this.pickupLat,
     this.pickupLng,
     this.destinationLat,
     this.destinationLng,
     this.ambulanceType,
+    this.ambulanceReferenceId,
     this.ambulanceId,
     this.patientConditionNotes,
     this.pickupAddress,
+    this.destinationHospitalId,
     this.destinationAddress,
+    this.bloodStockId,
     this.bloodType,
     this.unitsNeeded,
+    this.hospitalId,
     this.hospitalName,
     this.prescribingDoctor,
     this.testId,
@@ -100,47 +113,130 @@ class BookingRequestModel {
   }
 
   factory BookingRequestModel.fromFirestore(DocumentSnapshot doc) {
-    final data = doc.data() as Map<String, dynamic>;
+    final rawData = doc.data();
+    if (rawData is! Map<String, dynamic>) {
+      throw FormatException('Booking ${doc.id} is not a document map.');
+    }
+    final data = rawData;
+
+    String requiredString(String key) {
+      final value = data[key];
+      if (value is! String || value.isEmpty) {
+        throw FormatException('Booking ${doc.id} has an invalid $key.');
+      }
+      return value;
+    }
+
+    String? optionalString(String key) {
+      final value = data[key];
+      if (value == null) return null;
+      if (value is! String) {
+        throw FormatException('Booking ${doc.id} has an invalid $key.');
+      }
+      return value;
+    }
+
+    double? optionalNumber(String key) {
+      final value = data[key];
+      if (value == null) return null;
+      if (value is! num) {
+        throw FormatException('Booking ${doc.id} has an invalid $key.');
+      }
+      return value.toDouble();
+    }
+
+    int? optionalInt(String key) {
+      final value = data[key];
+      if (value == null) return null;
+      if (value is! int) {
+        throw FormatException('Booking ${doc.id} has an invalid $key.');
+      }
+      return value;
+    }
+
+    DateTime? optionalDate(String key) {
+      final value = data[key];
+      if (value == null) return null;
+      if (value is! Timestamp) {
+        throw FormatException('Booking ${doc.id} has an invalid $key.');
+      }
+      return value.toDate();
+    }
+
+    final type = requiredString('type');
+    if (!const {'bed', 'blood', 'ambulance', 'test'}.contains(type)) {
+      throw FormatException('Booking ${doc.id} has an invalid type.');
+    }
+    final status = requiredString('status');
+    if (!const {
+      'pending',
+      'confirmed',
+      'admitted',
+      'expired',
+      'rejected',
+    }.contains(status)) {
+      throw FormatException('Booking ${doc.id} has an invalid status.');
+    }
+    final createdAt = optionalDate('created_at');
+    if (createdAt == null) {
+      throw FormatException('Booking ${doc.id} has an invalid created_at.');
+    }
+
     return BookingRequestModel(
       id: doc.id,
-      type: data['type'] ?? '',
-      organizationId: data['organization_id'] ?? '',
-      organizationName: data['organization_name'],
-      userId: data['user_id'] ?? '',
-      patientName: data['patient_name'] ?? '',
-      contactNumber: data['contact_number'] ?? '',
-      status: data['status'] ?? 'pending',
-      heldUntil: (data['held_until'] as Timestamp?)?.toDate(),
-      estimatedPrice: data['estimated_price']?.toDouble(),
-      createdAt: (data['created_at'] as Timestamp?)?.toDate() ?? DateTime.now(),
-      bedType: data['bed_type'],
-      prescriptionImageUrl: data['prescription_image_url'],
-      pickupLat: data['pickup_lat']?.toDouble(),
-      pickupLng: data['pickup_lng']?.toDouble(),
-      destinationLat: data['destination_lat']?.toDouble(),
-      destinationLng: data['destination_lng']?.toDouble(),
-      ambulanceType: data['ambulance_type'],
-      ambulanceId: data['ambulance_id'],
-      patientConditionNotes: data['patient_condition_notes'],
-      pickupAddress: data['pickup_address'],
-      destinationAddress: data['destination_address'],
-      bloodType: data['blood_type'],
-      unitsNeeded: data['units_needed'],
-      hospitalName: data['hospital_name'],
-      prescribingDoctor: data['prescribing_doctor'],
-      testId: data['test_id'],
-      testName: data['test_name'],
-      serialNumber: data['serial_number'],
-      queueDate: data['queue_date'],
-      queueYear: data['queue_year'],
-      queueMonth: data['queue_month'],
-      queueDay: data['queue_day'],
-      queueCounterId: data['queue_counter_id'],
-      estimatedArrivalTime: (data['estimated_arrival_time'] as Timestamp?)
-          ?.toDate(),
-      calledAt: (data['called_at'] as Timestamp?)?.toDate(),
-      completedAt: (data['completed_at'] as Timestamp?)?.toDate(),
+      type: type,
+      organizationId: requiredString('organization_id'),
+      organizationName: requiredString('organization_name'),
+      userId: requiredString('user_id'),
+      patientName: requiredString('patient_name'),
+      contactNumber: requiredString('contact_number'),
+      status: status,
+      heldUntil: optionalDate('held_until'),
+      estimatedPrice: optionalNumber('estimated_price'),
+      createdAt: createdAt,
+      bedId: optionalString('bed_id'),
+      bedType: optionalString('bed_type'),
+      prescriptionDocumentId: optionalString('prescription_document_id'),
+      prescriptionImageUrl: optionalString('prescription_image_url'),
+      pickupLat: optionalNumber('pickup_lat'),
+      pickupLng: optionalNumber('pickup_lng'),
+      destinationLat: optionalNumber('destination_lat'),
+      destinationLng: optionalNumber('destination_lng'),
+      ambulanceType: optionalString('ambulance_type'),
+      ambulanceReferenceId: optionalString('ambulance_reference_id'),
+      ambulanceId: optionalString('ambulance_id'),
+      patientConditionNotes: optionalString('patient_condition_notes'),
+      pickupAddress: optionalString('pickup_address'),
+      destinationHospitalId: optionalString('destination_hospital_id'),
+      destinationAddress: optionalString('destination_address'),
+      bloodStockId: optionalString('blood_stock_id'),
+      bloodType: optionalString('blood_type'),
+      unitsNeeded: optionalInt('units_needed'),
+      hospitalId: optionalString('hospital_id'),
+      hospitalName: optionalString('hospital_name'),
+      prescribingDoctor: optionalString('prescribing_doctor'),
+      testId: optionalString('test_id'),
+      testName: optionalString('test_name'),
+      serialNumber: optionalInt('serial_number'),
+      queueDate: optionalString('queue_date'),
+      queueYear: optionalInt('queue_year'),
+      queueMonth: optionalInt('queue_month'),
+      queueDay: optionalInt('queue_day'),
+      queueCounterId: optionalString('queue_counter_id'),
+      estimatedArrivalTime: optionalDate('estimated_arrival_time'),
+      calledAt: optionalDate('called_at'),
+      completedAt: optionalDate('completed_at'),
     );
+  }
+
+  static BookingRequestModel? tryFromFirestore(DocumentSnapshot doc) {
+    try {
+      return BookingRequestModel.fromFirestore(doc);
+    } on FormatException {
+      return null;
+    } on TypeError {
+      return null;
+    }
   }
 
   Map<String, dynamic> toFirestore() {
@@ -158,23 +254,30 @@ class BookingRequestModel {
     };
 
     if (type == 'bed') {
+      map['bed_id'] = bedId;
       map['bed_type'] = bedType;
-      map['prescription_image_url'] = prescriptionImageUrl;
+      map['prescription_document_id'] = prescriptionDocumentId;
     } else if (type == 'ambulance') {
       map['pickup_lat'] = pickupLat;
       map['pickup_lng'] = pickupLng;
       map['destination_lat'] = destinationLat;
       map['destination_lng'] = destinationLng;
       map['ambulance_type'] = ambulanceType;
+      map['ambulance_reference_id'] = ambulanceReferenceId;
       map['ambulance_id'] = ambulanceId;
       map['patient_condition_notes'] = patientConditionNotes;
       map['pickup_address'] = pickupAddress;
+      map['destination_hospital_id'] = destinationHospitalId;
       map['destination_address'] = destinationAddress;
+      map['prescription_document_id'] = prescriptionDocumentId;
     } else if (type == 'blood') {
+      map['blood_stock_id'] = bloodStockId;
       map['blood_type'] = bloodType;
       map['units_needed'] = unitsNeeded;
+      map['hospital_id'] = hospitalId;
       map['hospital_name'] = hospitalName;
       map['prescribing_doctor'] = prescribingDoctor;
+      map['prescription_document_id'] = prescriptionDocumentId;
     } else if (type == 'test') {
       map['test_id'] = testId;
       map['test_name'] = testName;
@@ -210,19 +313,25 @@ class BookingRequestModel {
     DateTime? heldUntil,
     double? estimatedPrice,
     DateTime? createdAt,
+    String? bedId,
     String? bedType,
+    String? prescriptionDocumentId,
     String? prescriptionImageUrl,
     double? pickupLat,
     double? pickupLng,
     double? destinationLat,
     double? destinationLng,
     String? ambulanceType,
+    String? ambulanceReferenceId,
     String? ambulanceId,
     String? patientConditionNotes,
     String? pickupAddress,
+    String? destinationHospitalId,
     String? destinationAddress,
+    String? bloodStockId,
     String? bloodType,
     int? unitsNeeded,
+    String? hospitalId,
     String? hospitalName,
     String? prescribingDoctor,
     String? testId,
@@ -249,20 +358,29 @@ class BookingRequestModel {
       heldUntil: heldUntil ?? this.heldUntil,
       estimatedPrice: estimatedPrice ?? this.estimatedPrice,
       createdAt: createdAt ?? this.createdAt,
+      bedId: bedId ?? this.bedId,
       bedType: bedType ?? this.bedType,
+      prescriptionDocumentId:
+          prescriptionDocumentId ?? this.prescriptionDocumentId,
       prescriptionImageUrl: prescriptionImageUrl ?? this.prescriptionImageUrl,
       pickupLat: pickupLat ?? this.pickupLat,
       pickupLng: pickupLng ?? this.pickupLng,
       destinationLat: destinationLat ?? this.destinationLat,
       destinationLng: destinationLng ?? this.destinationLng,
       ambulanceType: ambulanceType ?? this.ambulanceType,
+      ambulanceReferenceId:
+          ambulanceReferenceId ?? this.ambulanceReferenceId,
       ambulanceId: ambulanceId ?? this.ambulanceId,
       patientConditionNotes:
           patientConditionNotes ?? this.patientConditionNotes,
       pickupAddress: pickupAddress ?? this.pickupAddress,
+      destinationHospitalId:
+          destinationHospitalId ?? this.destinationHospitalId,
       destinationAddress: destinationAddress ?? this.destinationAddress,
+      bloodStockId: bloodStockId ?? this.bloodStockId,
       bloodType: bloodType ?? this.bloodType,
       unitsNeeded: unitsNeeded ?? this.unitsNeeded,
+      hospitalId: hospitalId ?? this.hospitalId,
       hospitalName: hospitalName ?? this.hospitalName,
       prescribingDoctor: prescribingDoctor ?? this.prescribingDoctor,
       testId: testId ?? this.testId,

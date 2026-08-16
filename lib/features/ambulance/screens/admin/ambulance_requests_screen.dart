@@ -6,6 +6,7 @@ import '../../../../models/booking_request_model.dart';
 import '../../../../providers/auth_provider.dart';
 import '../../../../providers/booking_provider.dart';
 import '../../../../shared/widgets/booking_status_chip.dart';
+import '../../../../shared/widgets/prescription_image.dart';
 import '../../../../shared/widgets/price_widget.dart';
 import '../../providers/ambulance_provider.dart';
 
@@ -202,6 +203,10 @@ class _AmbulanceRequestsScreenState extends State<AmbulanceRequestsScreen> {
                                 ),
                                 BookingStatusChip(status: booking.status),
                               ],
+                            ),
+                            PrescriptionDialogButton(
+                              documentId: booking.prescriptionDocumentId,
+                              legacyUrl: booking.prescriptionImageUrl,
                             ),
                             if (booking.isPending) ...[
                               const SizedBox(height: 12),

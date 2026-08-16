@@ -9,7 +9,6 @@ import '../../../models/organization_model.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/booking_provider.dart';
 import '../../../providers/organization_provider.dart';
-import '../../../services/storage_service.dart';
 import '../../../shared/utils/validators.dart';
 import '../../../shared/widgets/prescription_upload_field.dart';
 import '../../../shared/widgets/price_widget.dart';
@@ -33,10 +32,10 @@ class _BloodRequestScreenState extends State<BloodRequestScreen> {
   final _unitsController = TextEditingController(text: '1');
   OrganizationModel? _org;
   String? _selectedBloodType;
-  String? _selectedHospital;
+  OrganizationModel? _selectedHospital;
   List<OrganizationModel> _hospitals = [];
   Uint8List? _prescriptionImage;
-  String? _prescriptionFileName;
+  String _prescriptionContentType = 'image/jpeg';
   bool _isLoading = false;
   bool _isSubmitting = false;
 
@@ -75,22 +74,21 @@ class _BloodRequestScreenState extends State<BloodRequestScreen> {
     setState(() => _isSubmitting = true);
 
     try {
+      final bookingProvider = context.read<BookingProvider>();
       final bloodProvider = context.read<BloodProvider>();
       final stock = bloodProvider.getStockForOrg(widget.organizationId);
       final match = stock.firstWhere((s) => s.bloodType == _selectedBloodType);
       final units = int.parse(_unitsController.text);
+      if (units > match.availableUnits) {
+        throw StateError(
+          'Only ${match.availableUnits} units are currently available.',
+        );
+      }
       final estimatedPrice = match.processingFeePerUnit * units;
-
-      // Prescription is required, so the form validator guarantees it's set.
-      final storage = StorageService();
-      final imageUrl = await storage.uploadFile(
-        path: 'prescriptions/${auth.user!.uid}/${DateTime.now().millisecondsSinceEpoch}_$_prescriptionFileName',
-        data: _prescriptionImage!,
-        contentType: 'image/jpeg',
-      );
+      final bookingId = bookingProvider.generateBookingId();
 
       final booking = BookingRequestModel(
-        id: '',
+        id: bookingId,
         type: 'blood',
         organizationId: widget.organizationId,
         organizationName: _org?.name,
@@ -98,16 +96,22 @@ class _BloodRequestScreenState extends State<BloodRequestScreen> {
         patientName: _nameController.text.trim(),
         contactNumber: _phoneController.text.trim(),
         createdAt: DateTime.now(),
+        bloodStockId: match.id,
         bloodType: _selectedBloodType,
         unitsNeeded: units,
-        hospitalName: _selectedHospital,
+        hospitalId: _selectedHospital?.id,
+        hospitalName: _selectedHospital?.name,
         prescribingDoctor: _doctorController.text.trim(),
-        prescriptionImageUrl: imageUrl,
+        prescriptionDocumentId: bookingId,
         estimatedPrice: estimatedPrice,
       );
 
-      final bookingId = await context.read<BookingProvider>().createBooking(booking);
-      if (mounted) context.go('/booking/$bookingId');
+      await bookingProvider.createBookingWithPrescription(
+        booking,
+        _prescriptionImage!,
+        contentType: _prescriptionContentType,
+      );
+      if (mounted) context.go('/booking/${booking.id}');
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed: $e')));
     }
@@ -217,7 +221,7 @@ class _BloodRequestScreenState extends State<BloodRequestScreen> {
                         );
                       },
                       displayStringForOption: (org) => org.name,
-                      onSelected: (org) => _selectedHospital = org.name,
+                      onSelected: (org) => _selectedHospital = org,
                       fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
                         return TextFormField(
                           controller: controller,
@@ -272,9 +276,9 @@ class _BloodRequestScreenState extends State<BloodRequestScreen> {
                     ),
                     const SizedBox(height: 16),
                     PrescriptionUploadField(
-                      onChanged: (bytes, name) => setState(() {
+                      onChanged: (bytes, _, contentType) => setState(() {
                         _prescriptionImage = bytes;
-                        _prescriptionFileName = name;
+                        _prescriptionContentType = contentType;
                       }),
                     ),
                     const SizedBox(height: 24),

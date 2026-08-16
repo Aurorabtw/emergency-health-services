@@ -9,7 +9,6 @@ import '../../../models/organization_model.dart';
 import '../../../providers/auth_provider.dart';
 import '../../../providers/booking_provider.dart';
 import '../../../providers/organization_provider.dart';
-import '../../../services/storage_service.dart';
 import '../../../shared/utils/validators.dart';
 import '../../../shared/widgets/prescription_upload_field.dart';
 import '../../../shared/widgets/price_widget.dart';
@@ -32,7 +31,7 @@ class _BedBookingScreenState extends State<BedBookingScreen> {
   OrganizationModel? _hospital;
   String? _selectedBedType;
   Uint8List? _prescriptionImage;
-  String? _prescriptionFileName;
+  String _prescriptionContentType = 'image/jpeg';
   bool _isLoading = false;
   bool _isSubmitting = false;
 
@@ -79,20 +78,14 @@ class _BedBookingScreenState extends State<BedBookingScreen> {
     setState(() => _isSubmitting = true);
 
     try {
-      // Prescription is required, so the form validator guarantees it's set.
-      final storage = StorageService();
-      final imageUrl = await storage.uploadFile(
-        path: 'prescriptions/${auth.user!.uid}/${DateTime.now().millisecondsSinceEpoch}_$_prescriptionFileName',
-        data: _prescriptionImage!,
-        contentType: 'image/jpeg',
-      );
-
+      final bookingProvider = context.read<BookingProvider>();
       final bedProvider = context.read<BedProvider>();
       final beds = bedProvider.getBedsForHospital(widget.organizationId);
       final selectedBed = beds.firstWhere((b) => b.type == _selectedBedType);
+      final bookingId = bookingProvider.generateBookingId();
 
       final booking = BookingRequestModel(
-        id: '',
+        id: bookingId,
         type: 'bed',
         organizationId: widget.organizationId,
         organizationName: _hospital?.name,
@@ -100,13 +93,18 @@ class _BedBookingScreenState extends State<BedBookingScreen> {
         patientName: _nameController.text.trim(),
         contactNumber: _phoneController.text.trim(),
         createdAt: DateTime.now(),
+        bedId: selectedBed.id,
         bedType: _selectedBedType,
-        prescriptionImageUrl: imageUrl,
+        prescriptionDocumentId: bookingId,
         estimatedPrice: selectedBed.pricePerDay,
       );
 
-      final bookingId = await context.read<BookingProvider>().createBooking(booking);
-      if (mounted) context.go('/booking/$bookingId');
+      await bookingProvider.createBookingWithPrescription(
+        booking,
+        _prescriptionImage!,
+        contentType: _prescriptionContentType,
+      );
+      if (mounted) context.go('/booking/${booking.id}');
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to submit: $e')));
@@ -201,9 +199,9 @@ class _BedBookingScreenState extends State<BedBookingScreen> {
                     ),
                     const SizedBox(height: 16),
                     PrescriptionUploadField(
-                      onChanged: (bytes, name) => setState(() {
+                      onChanged: (bytes, _, contentType) => setState(() {
                         _prescriptionImage = bytes;
-                        _prescriptionFileName = name;
+                        _prescriptionContentType = contentType;
                       }),
                     ),
                     const SizedBox(height: 24),

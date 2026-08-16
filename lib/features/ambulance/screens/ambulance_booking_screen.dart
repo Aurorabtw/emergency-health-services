@@ -11,7 +11,6 @@ import '../../../providers/auth_provider.dart';
 import '../../../providers/booking_provider.dart';
 import '../../../providers/location_provider.dart';
 import '../../../providers/organization_provider.dart';
-import '../../../services/storage_service.dart';
 import '../../../shared/utils/validators.dart';
 import '../../../shared/widgets/prescription_upload_field.dart';
 import '../../../shared/widgets/price_widget.dart';
@@ -35,10 +34,10 @@ class _AmbulanceBookingScreenState extends State<AmbulanceBookingScreen> {
   final _notesController = TextEditingController();
   OrganizationModel? _operator;
   String? _selectedType;
-  String? _selectedDestination;
+  OrganizationModel? _selectedDestination;
   List<OrganizationModel> _hospitals = [];
   Uint8List? _prescriptionImage;
-  String? _prescriptionFileName;
+  String _prescriptionContentType = 'image/jpeg';
   bool _isLoading = false;
   bool _isSubmitting = false;
   bool _locatingPickup = false;
@@ -119,18 +118,18 @@ class _AmbulanceBookingScreenState extends State<AmbulanceBookingScreen> {
     try {
       final locationProvider = context.read<LocationProvider>();
       final bookingProvider = context.read<BookingProvider>();
-
-      // Prescription is required, so the form validator guarantees it's set.
-      final storage = StorageService();
-      final imageUrl = await storage.uploadFile(
-        path:
-            'prescriptions/${auth.user!.uid}/${DateTime.now().millisecondsSinceEpoch}_$_prescriptionFileName',
-        data: _prescriptionImage!,
-        contentType: 'image/jpeg',
-      );
+      final ambulance = context
+          .read<AmbulanceProvider>()
+          .getAmbulancesForOrg(widget.organizationId)
+          .where((a) => a.type == _selectedType && a.isAvailable)
+          .firstOrNull;
+      if (ambulance == null) {
+        throw StateError('The selected ambulance type is no longer available.');
+      }
+      final bookingId = bookingProvider.generateBookingId();
 
       final booking = BookingRequestModel(
-        id: '',
+        id: bookingId,
         type: 'ambulance',
         organizationId: widget.organizationId,
         organizationName: _operator?.name,
@@ -139,20 +138,28 @@ class _AmbulanceBookingScreenState extends State<AmbulanceBookingScreen> {
         contactNumber: _phoneController.text.trim(),
         createdAt: DateTime.now(),
         ambulanceType: _selectedType,
+        ambulanceReferenceId: ambulance.id,
         pickupLat: locationProvider.latitude,
         pickupLng: locationProvider.longitude,
         pickupAddress: _pickupController.text.trim(),
-        destinationAddress: _selectedDestination,
+        destinationHospitalId: _selectedDestination?.id,
+        destinationAddress: _selectedDestination?.name,
+        destinationLat: _selectedDestination?.latitude,
+        destinationLng: _selectedDestination?.longitude,
         patientConditionNotes: _notesController.text.trim().isEmpty
             ? null
             : _notesController.text.trim(),
-        prescriptionImageUrl: imageUrl,
-        estimatedPrice: _estimateFare(),
+        prescriptionDocumentId: bookingId,
+        estimatedPrice: ambulance.baseFare,
       );
 
-      final bookingId = await bookingProvider.createBooking(booking);
+      await bookingProvider.createBookingWithPrescription(
+        booking,
+        _prescriptionImage!,
+        contentType: _prescriptionContentType,
+      );
       if (mounted) {
-        context.go('/booking/$bookingId');
+        context.go('/booking/${booking.id}');
       }
     } catch (e) {
       if (mounted) {
@@ -295,7 +302,7 @@ class _AmbulanceBookingScreenState extends State<AmbulanceBookingScreen> {
                         );
                       },
                       displayStringForOption: (org) => org.name,
-                      onSelected: (org) => _selectedDestination = org.name,
+                      onSelected: (org) => _selectedDestination = org,
                       fieldViewBuilder:
                           (context, controller, focusNode, onFieldSubmitted) {
                             return TextFormField(
@@ -379,9 +386,9 @@ class _AmbulanceBookingScreenState extends State<AmbulanceBookingScreen> {
                     ),
                     const SizedBox(height: 16),
                     PrescriptionUploadField(
-                      onChanged: (bytes, name) => setState(() {
+                      onChanged: (bytes, _, contentType) => setState(() {
                         _prescriptionImage = bytes;
-                        _prescriptionFileName = name;
+                        _prescriptionContentType = contentType;
                       }),
                     ),
                     const SizedBox(height: 24),

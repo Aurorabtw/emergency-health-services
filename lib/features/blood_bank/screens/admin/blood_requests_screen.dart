@@ -6,6 +6,7 @@ import '../../../../models/booking_request_model.dart';
 import '../../../../providers/auth_provider.dart';
 import '../../../../providers/booking_provider.dart';
 import '../../../../shared/widgets/booking_status_chip.dart';
+import '../../../../shared/widgets/prescription_image.dart';
 import '../../../../shared/widgets/price_widget.dart';
 import '../../providers/blood_provider.dart';
 
@@ -39,13 +40,18 @@ class _BloodRequestsScreenState extends State<BloodRequestsScreen> {
   Future<void> _approve(BookingRequestModel booking) async {
     try {
       final stock = context.read<BloodProvider>().getStockForOrg(_orgId!);
-      final match = stock.firstWhere((s) => s.bloodType == booking.bloodType);
+      final match = stock.firstWhere(
+        (s) => booking.bloodStockId != null
+            ? s.id == booking.bloodStockId
+            : s.bloodType == booking.bloodType,
+      );
 
       await context.read<BookingProvider>().confirmBooking(
-        booking.id,
-        'organizations/$_orgId/blood_stock/${match.id}',
-        'held_units',
-        60,
+        bookingId: booking.id,
+        organizationId: _orgId!,
+        resourceId: match.id,
+        bookingType: 'blood',
+        holdMinutes: 60,
       );
       _loadRequests();
     } catch (e) {
@@ -60,13 +66,17 @@ class _BloodRequestsScreenState extends State<BloodRequestsScreen> {
   Future<void> _complete(BookingRequestModel booking) async {
     try {
       final stock = context.read<BloodProvider>().getStockForOrg(_orgId!);
-      final match = stock.firstWhere((s) => s.bloodType == booking.bloodType);
+      final match = stock.firstWhere(
+        (s) => booking.bloodStockId != null
+            ? s.id == booking.bloodStockId
+            : s.bloodType == booking.bloodType,
+      );
 
       await context.read<BookingProvider>().admitBooking(
-        booking.id,
-        'organizations/$_orgId/blood_stock/${match.id}',
-        'held_units',
-        'issued_units',
+        bookingId: booking.id,
+        organizationId: _orgId!,
+        resourceId: match.id,
+        bookingType: 'blood',
       );
       _loadRequests();
     } catch (e) {
@@ -175,6 +185,10 @@ class _BloodRequestsScreenState extends State<BloodRequestsScreen> {
                                 ),
                                 BookingStatusChip(status: booking.status),
                               ],
+                            ),
+                            PrescriptionDialogButton(
+                              documentId: booking.prescriptionDocumentId,
+                              legacyUrl: booking.prescriptionImageUrl,
                             ),
                             if (booking.isPending) ...[
                               const SizedBox(height: 12),

@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:hospital_services/models/booking_request_model.dart';
 import 'package:hospital_services/models/test_model.dart';
 import 'package:hospital_services/models/user_model.dart';
+import 'package:hospital_services/shared/utils/validators.dart';
 
 void main() {
   UserModel userWithRole(String role) {
@@ -65,10 +66,66 @@ void main() {
       contactNumber: '01700000000',
       createdAt: DateTime(2026),
       ambulanceType: 'ICU',
+      ambulanceReferenceId: 'available-vehicle-id',
+      prescriptionDocumentId: 'booking-id',
     ).copyWith(ambulanceId: 'vehicle-id');
 
     expect(booking.ambulanceId, 'vehicle-id');
     expect(booking.toFirestore()['ambulance_id'], 'vehicle-id');
+    expect(
+      booking.toFirestore()['ambulance_reference_id'],
+      'available-vehicle-id',
+    );
+    expect(
+      booking.toFirestore()['prescription_document_id'],
+      'booking-id',
+    );
+  });
+
+  test('bed and blood bookings preserve authoritative references', () {
+    final bed = BookingRequestModel(
+      id: 'bed-booking-id',
+      type: 'bed',
+      organizationId: 'hospital-id',
+      organizationName: 'Hospital',
+      userId: 'patient-id',
+      patientName: 'Patient',
+      contactNumber: '01700000000',
+      createdAt: DateTime(2026),
+      bedId: 'bed-id',
+      bedType: 'ICU',
+      prescriptionDocumentId: 'bed-booking-id',
+    ).toFirestore();
+    final blood = BookingRequestModel(
+      id: 'blood-booking-id',
+      type: 'blood',
+      organizationId: 'blood-bank-id',
+      organizationName: 'Blood Bank',
+      userId: 'patient-id',
+      patientName: 'Patient',
+      contactNumber: '01700000000',
+      createdAt: DateTime(2026),
+      bloodStockId: 'stock-id',
+      bloodType: 'A+',
+      unitsNeeded: 2,
+      hospitalId: 'hospital-id',
+      hospitalName: 'Hospital',
+      prescribingDoctor: 'Doctor',
+      prescriptionDocumentId: 'blood-booking-id',
+    ).toFirestore();
+
+    expect(bed['bed_id'], 'bed-id');
+    expect(blood['blood_stock_id'], 'stock-id');
+    expect(blood['hospital_id'], 'hospital-id');
+    expect(
+      blood['prescription_document_id'],
+      'blood-booking-id',
+    );
+  });
+
+  test('positive integer validation rejects zero units', () {
+    expect(Validators.validatePositiveInt('0', 'Units'), isNotNull);
+    expect(Validators.validatePositiveInt('1', 'Units'), isNull);
   });
 
   test('diagnostic test stores its queue slot duration', () {

@@ -3,19 +3,26 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../services/prescription_service.dart';
+
 /// A required prescription image picker that integrates with [Form] validation.
 ///
 /// Because it extends [FormField], calling `formKey.currentState!.validate()`
 /// will flag a missing prescription just like any other required field.
-/// The picked bytes and file name are reported back via [onChanged] so the
-/// parent can upload them on submit.
+/// The picked bytes and file name are reported back via [onChanged].
 class PrescriptionUploadField extends FormField<Uint8List> {
   PrescriptionUploadField({
     super.key,
     required this.onChanged,
   }) : super(
-          validator: (value) =>
-              value == null ? 'Prescription is required' : null,
+          validator: (value) {
+            if (value == null) return 'Prescription is required';
+            if (value.lengthInBytes >
+                PrescriptionService.maxPrescriptionBytes) {
+              return 'Prescription must be 700 KB or smaller';
+            }
+            return null;
+          },
           builder: (state) {
             final field = state as _PrescriptionUploadFieldState;
             final theme = Theme.of(state.context);
@@ -48,7 +55,11 @@ class PrescriptionUploadField extends FormField<Uint8List> {
         );
 
   /// Called whenever a new image is picked, with the raw bytes and file name.
-  final void Function(Uint8List bytes, String fileName) onChanged;
+  final void Function(
+    Uint8List bytes,
+    String fileName,
+    String contentType,
+  ) onChanged;
 
   @override
   FormFieldState<Uint8List> createState() => _PrescriptionUploadFieldState();
@@ -61,11 +72,23 @@ class _PrescriptionUploadFieldState extends FormFieldState<Uint8List> {
 
   Future<void> _pick() async {
     final picker = ImagePicker();
-    final file = await picker.pickImage(source: ImageSource.gallery, maxWidth: 1200);
+    final file = await picker.pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 1200,
+      imageQuality: 75,
+    );
     if (file == null) return;
     final bytes = await file.readAsBytes();
+    final contentType = file.mimeType ?? _contentTypeFromName(file.name);
     setState(() => _fileName = file.name);
     didChange(bytes);
-    _field.onChanged(bytes, file.name);
+    _field.onChanged(bytes, file.name, contentType);
+  }
+
+  String _contentTypeFromName(String name) {
+    final lower = name.toLowerCase();
+    if (lower.endsWith('.png')) return 'image/png';
+    if (lower.endsWith('.webp')) return 'image/webp';
+    return 'image/jpeg';
   }
 }

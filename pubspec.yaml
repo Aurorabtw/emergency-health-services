@@ -31,7 +31,7 @@ dependencies:
   geolocator: ^14.0.3
   geolocator_web: ^4.1.1
 
-  # Cloudinary (image uploads)
+  # Networking
   http: ^1.4.0
 
   # Typography

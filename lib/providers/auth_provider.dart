@@ -68,31 +68,17 @@ class AuthProvider extends ChangeNotifier {
       if (doc.exists) {
         _userModel = UserModel.fromFirestore(doc);
       } else {
-        final configDoc = await _firestoreService.getDocument(
-          'config/platform',
-        );
-        final isFirstUser = !configDoc.exists;
-
-        final role = isFirstUser ? 'super_admin' : 'patient';
         final newUser = UserModel(
           uid: firebaseUser.uid,
           email: firebaseUser.email ?? '',
           name: firebaseUser.displayName,
-          role: role,
+          role: 'patient',
           profileComplete: false,
         );
         await _firestoreService.setDocument(
           'users/${firebaseUser.uid}',
           newUser.toFirestore(),
         );
-
-        if (isFirstUser) {
-          await _firestoreService.setDocument('config/platform', {
-            'initialized': true,
-            'initialized_by': firebaseUser.uid,
-            'initialized_at': DateTime.now().toIso8601String(),
-          });
-        }
 
         _userModel = newUser;
       }
@@ -225,31 +211,17 @@ class AuthProvider extends ChangeNotifier {
       // Create Firestore user doc (will be picked up by _onAuthStateChanged,
       // but we set name + profileComplete here since we have the name)
       if (credential.user != null) {
-        final configDoc = await _firestoreService.getDocument(
-          'config/platform',
-        );
-        final isFirstUser = !configDoc.exists;
-        final role = isFirstUser ? 'super_admin' : 'patient';
-
         final newUser = UserModel(
           uid: credential.user!.uid,
           email: email.trim(),
           name: name.trim(),
-          role: role,
+          role: 'patient',
           profileComplete: false,
         );
         await _firestoreService.setDocument(
           'users/${credential.user!.uid}',
           newUser.toFirestore(),
         );
-
-        if (isFirstUser) {
-          await _firestoreService.setDocument('config/platform', {
-            'initialized': true,
-            'initialized_by': credential.user!.uid,
-            'initialized_at': DateTime.now().toIso8601String(),
-          });
-        }
 
         _userModel = newUser;
         _isLoading = false;
