@@ -503,7 +503,10 @@ class _ManageUsersScreenState extends State<ManageUsersScreen> {
               else
                 LayoutBuilder(
                   builder: (context, constraints) {
-                    if (constraints.maxWidth < 850) {
+                    // Always use the card layout: it shows every field including
+                    // the action buttons at any width, so nothing clips off the
+                    // right edge like the wide table did.
+                    if (constraints.maxWidth < 1600) {
                       return Column(
                         children: visibleUsers.map((user) {
                           return _MobileUserCard(

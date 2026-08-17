@@ -151,6 +151,43 @@ class _AllDiagnosticTestsScreenState extends State<AllDiagnosticTestsScreen> {
     }
   }
 
+  Future<void> _confirmDelete(DiagnosticTestCatalogModel test) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Test Permanently'),
+        content: Text(
+          'Permanently delete "${test.name}" from the catalog? Hospital admins '
+          'will no longer be able to select it. This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await context.read<TestProvider>().deleteCatalogTest(test);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Deleted "${test.name}" from the catalog.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Unable to delete test: $e')),
+      );
+    }
+  }
+
   @override
   void dispose() {
     _searchController.dispose();
@@ -238,6 +275,7 @@ class _AllDiagnosticTestsScreenState extends State<AllDiagnosticTestsScreen> {
                   ...tests.map(
                     (test) => _CatalogTestCard(
                       test: test,
+                      onDelete: () => _confirmDelete(test),
                       onActiveChanged: (active) async {
                         try {
                           await context
@@ -266,17 +304,20 @@ class _AllDiagnosticTestsScreenState extends State<AllDiagnosticTestsScreen> {
 class _CatalogTestCard extends StatelessWidget {
   final DiagnosticTestCatalogModel test;
   final ValueChanged<bool> onActiveChanged;
+  final VoidCallback onDelete;
 
-  const _CatalogTestCard({required this.test, required this.onActiveChanged});
+  const _CatalogTestCard({
+    required this.test,
+    required this.onActiveChanged,
+    required this.onDelete,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
-      child: SwitchListTile(
-        value: test.active,
-        onChanged: onActiveChanged,
-        secondary: CircleAvatar(
+      child: ListTile(
+        leading: CircleAvatar(
           backgroundColor: test.active
               ? Colors.purple.shade50
               : Colors.grey.shade200,
@@ -293,6 +334,17 @@ class _CatalogTestCard extends StatelessWidget {
           test.active
               ? 'Available for hospital diagnostic admins'
               : 'Hidden from hospital diagnostic admins',
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Switch(value: test.active, onChanged: onActiveChanged),
+            IconButton(
+              icon: Icon(Icons.delete_outline, color: Colors.red.shade400),
+              tooltip: 'Delete permanently',
+              onPressed: onDelete,
+            ),
+          ],
         ),
       ),
     );

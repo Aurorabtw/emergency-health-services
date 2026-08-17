@@ -336,82 +336,32 @@ class _BloodRequestScreenState extends State<BloodRequestScreen> {
                       validator: Validators.validatePhone,
                     ),
                     const SizedBox(height: 12),
-                    Autocomplete<OrganizationModel>(
+                    DropdownButtonFormField<String>(
                       key: ValueKey('hospital-${widget.organizationId}'),
-                      optionsBuilder: (textEditingValue) {
-                        if (textEditingValue.text.isEmpty)
-                          return const Iterable.empty();
-                        final query = textEditingValue.text.toLowerCase();
-                        return _hospitals.where(
-                          (h) =>
-                              h.name.toLowerCase().contains(query) ||
-                              h.address.toLowerCase().contains(query),
-                        );
-                      },
-                      displayStringForOption: (org) => org.name,
-                      onSelected: (org) => _selectedHospital = org,
-                      fieldViewBuilder:
-                          (context, controller, focusNode, onFieldSubmitted) {
-                            return TextFormField(
-                              controller: controller,
-                              focusNode: focusNode,
-                              decoration: const InputDecoration(
-                                labelText: 'Hospital Where Blood is Needed',
-                                prefixIcon: Icon(Icons.local_hospital),
-                                hintText: 'Search hospitals...',
-                              ),
-                              validator: (v) {
-                                if (v == null || v.isEmpty)
-                                  return 'Select a hospital';
-                                if (_selectedHospital == null)
-                                  return 'Select a hospital from the list';
-                                return null;
-                              },
-                              onChanged: (value) {
-                                if (value != _selectedHospital?.name) {
-                                  _selectedHospital = null;
-                                }
-                              },
-                            );
-                          },
-                      optionsViewBuilder: (context, onSelected, options) {
-                        return Align(
-                          alignment: Alignment.topLeft,
-                          child: Material(
-                            elevation: 4,
-                            borderRadius: BorderRadius.circular(8),
-                            child: ConstrainedBox(
-                              constraints: const BoxConstraints(
-                                maxHeight: 200,
-                                maxWidth: 552,
-                              ),
-                              child: ListView.builder(
-                                padding: EdgeInsets.zero,
-                                shrinkWrap: true,
-                                itemCount: options.length,
-                                itemBuilder: (context, index) {
-                                  final org = options.elementAt(index);
-                                  return ListTile(
-                                    leading: const Icon(
-                                      Icons.local_hospital,
-                                      size: 20,
-                                    ),
-                                    title: Text(org.name),
-                                    subtitle: org.address.isNotEmpty
-                                        ? Text(
-                                            org.address,
-                                            overflow: TextOverflow.ellipsis,
-                                            maxLines: 1,
-                                          )
-                                        : null,
-                                    onTap: () => onSelected(org),
-                                  );
-                                },
+                      initialValue: _selectedHospital?.id,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Hospital Where Blood is Needed',
+                        prefixIcon: Icon(Icons.local_hospital),
+                      ),
+                      hint: const Text('Select a hospital'),
+                      items: _hospitals
+                          .map(
+                            (h) => DropdownMenuItem<String>(
+                              value: h.id,
+                              child: Text(
+                                h.name,
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
-                          ),
-                        );
-                      },
+                          )
+                          .toList(),
+                      onChanged: (id) => setState(() {
+                        _selectedHospital = id == null
+                            ? null
+                            : _hospitals.firstWhere((h) => h.id == id);
+                      }),
+                      validator: (v) => v == null ? 'Select a hospital' : null,
                     ),
                     const SizedBox(height: 12),
                     TextFormField(

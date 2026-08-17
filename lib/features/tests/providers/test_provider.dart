@@ -128,6 +128,13 @@ class TestProvider extends ChangeNotifier {
     await fetchCatalog();
   }
 
+  Future<void> deleteCatalogTest(DiagnosticTestCatalogModel test) async {
+    await _firestoreService.deleteDocument(
+      'diagnostic_test_catalog/${test.id}',
+    );
+    await fetchCatalog();
+  }
+
   Future<void> ensureCatalogFromOfferings() async {
     if (_catalog.isNotEmpty) return;
     final names = <String, String>{};
