@@ -218,15 +218,18 @@ class _NavButtonState extends State<_NavButton> {
         onTap: widget.onTap,
         child: AnimatedContainer(
           duration: AppTheme.fast,
-          margin: const EdgeInsets.symmetric(horizontal: 2, vertical: 12),
-          padding: const EdgeInsets.symmetric(horizontal: 14),
+          margin: const EdgeInsets.symmetric(horizontal: 3, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
           decoration: BoxDecoration(
             color: _hovered && !widget.isActive
                 ? AppTheme.background
                 : widget.isActive
-                ? AppTheme.primary.withValues(alpha: 0.08)
+                ? AppTheme.primary.withValues(alpha: 0.12)
                 : Colors.transparent,
             borderRadius: BorderRadius.circular(10),
+            border: widget.isActive
+                ? Border.all(color: AppTheme.primary.withValues(alpha: 0.22))
+                : null,
           ),
           child: Row(
             children: [
