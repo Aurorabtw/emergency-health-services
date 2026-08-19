@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import '../../../models/booking_request_model.dart';
 import '../../../providers/booking_provider.dart';
+import '../receipt_printer.dart';
 import '../../../shared/widgets/booking_status_chip.dart';
 import '../../../shared/widgets/prescription_image.dart';
 import '../../../shared/widgets/price_widget.dart';
@@ -97,6 +98,12 @@ class _BookingDetailScreenState extends State<BookingDetailScreen> {
                                   ?.copyWith(fontWeight: FontWeight.bold),
                             ),
                           ),
+                          IconButton(
+                            icon: const Icon(Icons.print_outlined),
+                            tooltip: 'Print receipt',
+                            onPressed: () => printBookingReceipt(booking),
+                          ),
+                          const SizedBox(width: 4),
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.end,
                             children: [

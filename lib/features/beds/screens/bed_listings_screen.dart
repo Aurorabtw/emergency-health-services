@@ -199,19 +199,26 @@ class _BedListingsScreenState extends State<BedListingsScreen> {
                                 spacing: 12,
                                 runSpacing: 8,
                                 children: filteredBeds.map((bed) {
+                                  final bedColor = _bedTypeColor(bed.type);
                                   return Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
                                     decoration: BoxDecoration(
-                                      color: Colors.grey.shade50,
-                                      borderRadius: BorderRadius.circular(8),
-                                      border: Border.all(color: Colors.grey.shade200),
+                                      color: bedColor.withValues(alpha: 0.08),
+                                      borderRadius: BorderRadius.circular(20),
+                                      border: Border.all(color: bedColor.withValues(alpha: 0.30)),
                                     ),
                                     child: Row(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
-                                        Text('${bed.type}: ', style: const TextStyle(fontSize: 13)),
+                                        Container(
+                                          width: 7,
+                                          height: 7,
+                                          decoration: BoxDecoration(color: bedColor, shape: BoxShape.circle),
+                                        ),
+                                        const SizedBox(width: 7),
+                                        Text('${bed.type}  ', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: bedColor)),
                                         PriceWidget(price: bed.pricePerDay, label: 'day'),
-                                        Text(' (${bed.availableBeds} avail)', style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+                                        Text('  ·  ${bed.availableBeds} left', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
                                       ],
                                     ),
                                   );
@@ -239,6 +246,24 @@ class _BedListingsScreenState extends State<BedListingsScreen> {
         ),
       ),
     );
+  }
+
+  // Severity-based color for a bed type: routine → critical.
+  Color _bedTypeColor(String type) {
+    switch (type.trim().toUpperCase()) {
+      case 'GENERAL':
+        return Colors.green.shade600;
+      case 'HDU':
+        return Colors.amber.shade800;
+      case 'ICU':
+        return Colors.orange.shade800;
+      case 'NICU':
+        return Colors.red.shade600;
+      case 'CCU':
+        return Colors.deepOrange.shade600;
+      default:
+        return Colors.blueGrey.shade600;
+    }
   }
 
   Widget _emptyState() {
